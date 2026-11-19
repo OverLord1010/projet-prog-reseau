@@ -27,14 +27,14 @@ void echo_server(int sockfd) {
 	}
 }
 
-int handle_bind() {
+int handle_bind(const char* serv_port) {
 	struct addrinfo hints, *result, *rp;
 	int sfd;
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
-	if (getaddrinfo(NULL, SERV_PORT, &hints, &result) != 0) {
+	if (getaddrinfo(NULL, serv_port, &hints, &result) != 0) {
 		perror("getaddrinfo()");
 		exit(EXIT_FAILURE);
 	}
@@ -57,15 +57,19 @@ int handle_bind() {
 	return sfd;
 }
 
-int main() {
+int main(int argc, char** argv) {
+
+    const char *serv_port = argc > 1 ? argv[1] : SERV_PORT;
+
 	struct sockaddr cli;
 	int sfd, connfd;
 	socklen_t len;
-	sfd = handle_bind();
+	sfd = handle_bind(serv_port);
 	if ((listen(sfd, SOMAXCONN)) != 0) {
 		perror("listen()\n");
 		exit(EXIT_FAILURE);
 	}
+    printf("listening on port %s\n", serv_port);
 	len = sizeof(cli);
 	if ((connfd = accept(sfd, (struct sockaddr*) &cli, &len)) < 0) {
 		perror("accept()\n");
