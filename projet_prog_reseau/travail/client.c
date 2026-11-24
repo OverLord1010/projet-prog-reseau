@@ -10,6 +10,46 @@
 
 #include "common.h"
 
+const char *fonction(const char *commande) {
+    char cmd[32];
+    char arg[NICK_LEN];
+
+    // who
+
+    int n = sscanf(commande, "%31s %31[^\n]", cmd, arg);
+
+    if (n >= 1 && strcmp(cmd, "/nick") == 0)
+    {
+        if (n == 2){
+            printf("Nouveau pseudo : %s\n", arg);
+            return arg;
+        }
+        else
+            printf("Erreur dans le pseudo\n");
+    }
+
+    else if (n >= 1 && strcmp(cmd, "/whois") == 0)
+    {
+        if (n == 2) {
+            printf("Qui est : %s ?\n", arg);
+            return arg;
+        }
+        else printf("Erreur dans le whois\n");
+    }
+
+    else if (n >= 1 && strcmp(cmd, "/msgall") == 0)
+    {
+        if (n == 2)
+        {
+            printf("Message à tous : %s\n", arg);
+            return arg;
+        }
+        else
+            printf("Erreur dans le msgall\n");
+    }
+        return "yo";
+}
+
 void echo_client(int sockfd) {
     struct pollfd fds[2] = {
         { .fd = STDIN_FILENO, .events = POLLIN },
@@ -57,6 +97,8 @@ void echo_client(int sockfd) {
             send_message(sockfd, payload, msg.pld_len);
 
 			if (strcmp(payload, "/quit\n") != 0) {
+                const char *test = fonction(payload);
+                printf("%s",test);
 				printf("Message sent!\n");
 			}
         }
