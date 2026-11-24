@@ -24,7 +24,8 @@ void echo_client(int sockfd) {
 		send_next_message_size(sockfd, n);
 		send_message(sockfd, buff, n);
 
-		printf("Message sent!\n");
+		if (strcmp(buff, "/quit\n") != 0)
+			printf("Message sent!\n");
 		// Cleaning memory
 		memset(buff, 0, MSG_LEN);
 		// Receiving message
