@@ -36,7 +36,7 @@ int echo_server(int sockfd) {
 
 	if (strcmp(msg, "/quit") == 0)
 	{
-		printf("Le client a demandé à quitter.\n");
+		printf("Le client %d a demandé à quitter.\n", sockfd);
 		free(msg);
 		close(sockfd);
 		return 0;
