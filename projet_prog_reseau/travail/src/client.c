@@ -15,22 +15,28 @@ void echo_client(int sockfd) {
 	while (1) {
 		// Cleaning memory
 		memset(buff, 0, MSG_LEN);
+		
 		// Getting message from client
-		printf("Message: ");
 		n = 0;
 		while ((buff[n++] = getchar()) != '\n') {} // trailing '\n' will be sent
-		// Sending message (ECHO)
-		if (send(sockfd, buff, strlen(buff), 0) <= 0) {
-			break;
-		}
+
+		// Sending message
+		send_next_message_size(sockfd, n);
+		send_message(sockfd, buff, n);
+
 		printf("Message sent!\n");
 		// Cleaning memory
 		memset(buff, 0, MSG_LEN);
 		// Receiving message
-		if (recv(sockfd, buff, MSG_LEN, 0) <= 0) {
+		int to_read = rcv_next_message_size(sockfd);
+		if (to_read <= 0 || to_read > MSG_LEN) {
 			break;
 		}
-		printf("Received: %s", buff);
+
+		if (rcv_message(sockfd, buff, to_read) < 0) {
+			break;
+		}
+		printf("Received: %s\n", buff);
 	}
 }
 

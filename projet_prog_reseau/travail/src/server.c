@@ -13,26 +13,39 @@
 #include "common.h"
 
 int echo_server(int sockfd) {
-	char buff[MSG_LEN];
-    ssize_t received = recv(sockfd, buff, sizeof buff, 0);
+    int to_read = rcv_next_message_size(sockfd);
 
-    if (received <= 0) {
+    if (to_read <= 0) {
         return -1;  // déconnexion ou erreur de lecture
     }
 
-    printf("Received %s from %d\n", buff, sockfd);
+    printf("Received %d bytes from %d\n", to_read, sockfd);
 
-    // on doit recevoir tous les octets
-    ssize_t sent = 0;
-    while (sent < received) {
-        ssize_t n = send(sockfd, buff + sent, received - sent, 0);
-        if (n <= 0) {
-            return -1;
-        }
-        sent += n;
+    char* msg = malloc(sizeof(char)*to_read);
+    int bytes_read = rcv_message(sockfd, msg, to_read);
+    if(bytes_read == -1) {
+        free(msg);
+        return 1;
     }
+    // Terminer le texte pour pouvoir utiliser %s et strcmp().
 
-    printf("Message sent to %d\n", sockfd);
+    if (bytes_read > 0 && msg[bytes_read - 1] == '\n') {
+        bytes_read--;
+        }
+    msg[bytes_read] = '\0';
+
+    printf("Message from %d: %s\n", sockfd, msg);
+
+    char buff[MSG_LEN] = {0};
+
+    snprintf(buff, sizeof(buff), "We received '%s' from you.", msg);
+
+    // Sending message
+    int to_send = strlen(buff) + 1;
+    send_next_message_size(sockfd, to_send);
+    send_message(sockfd, buff, to_send);
+
+    printf("Message sent to %d\n\n", sockfd);
 
     return 0;
 }
