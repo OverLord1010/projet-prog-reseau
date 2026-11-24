@@ -34,7 +34,15 @@ int echo_server(int sockfd) {
         }
     msg[bytes_read] = '\0';
 
-    printf("Message from %d: %s\n", sockfd, msg);
+	if (strcmp(msg, "/quit") == 0)
+	{
+		printf("Le client a demandé à quitter.\n");
+		free(msg);
+		close(sockfd);
+		return 0;
+	}
+
+	printf("Message from %d: %s\n", sockfd, msg);
 
     char buff[MSG_LEN] = {0};
 
