@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
     const char *serv_port = argv[1];
 
 	struct sockaddr cli;
-	int listen_fd, connfd;
+	int listen_fd;//, connfd;
 	socklen_t len;
     len = sizeof(cli);
 	listen_fd = handle_bind(serv_port);
