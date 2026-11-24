@@ -12,6 +12,13 @@
 
 #include "common.h"
 
+struct connected_client {
+    int fd;
+    struct sockaddr_storage addr;
+    socklen_t addr_len;
+    struct connected_client *next;
+};
+
 int echo_server(int sockfd) {
     int to_read = rcv_next_message_size(sockfd);
 
@@ -21,7 +28,7 @@ int echo_server(int sockfd) {
 
     printf("Received %d bytes from %d\n", to_read, sockfd);
 
-    char* msg = malloc(sizeof(char)*to_read);
+    char* msg = malloc(sizeof(char)*to_read+1);
     int bytes_read = rcv_message(sockfd, msg, to_read);
     if(bytes_read == -1) {
         free(msg);
@@ -38,8 +45,7 @@ int echo_server(int sockfd) {
 	{
 		printf("Le client %d a demandé à quitter.\n", sockfd);
 		free(msg);
-		close(sockfd);
-		return 0;
+		return -1;
 	}
 
 	printf("Message from %d: %s\n", sockfd, msg);
@@ -47,6 +53,7 @@ int echo_server(int sockfd) {
     char buff[MSG_LEN] = {0};
 
     snprintf(buff, sizeof(buff), "We received '%s' from you.", msg);
+    free(msg);
 
     // Sending message
     int to_send = strlen(buff) + 1;
@@ -97,16 +104,15 @@ int main(int argc, char** argv) {
 
     const char *serv_port = argv[1];
 
-	struct sockaddr cli;
-	int listen_fd;//, connfd;
-	socklen_t len;
-    len = sizeof(cli);
+	int listen_fd;
 	listen_fd = handle_bind(serv_port);
 	if ((listen(listen_fd, SOMAXCONN)) != 0) {
 		perror("listen()\n");
 		exit(EXIT_FAILURE);
 	}
     printf("listening on port %s\n", serv_port);
+
+    struct connected_client *clients = NULL;
 
     // Gestion de plusieurs client en simultané
     struct pollfd fds[MAX_CONN] = {0};
@@ -131,7 +137,10 @@ int main(int argc, char** argv) {
             // sur la socket d’écoute POLLIN annonce une connexion à accepter
             if(fds[i].fd == listen_fd && (fds[i].revents & POLLIN)) {
                 // accept() crée une socket dédiée au client et listen_fd reste en écoute
-                int new_fd = accept(listen_fd, (struct sockaddr*)&cli, &len);
+                struct sockaddr_storage cli = {0};
+                socklen_t len = sizeof cli;
+
+                int new_fd = accept(listen_fd, (struct sockaddr *)&cli, &len);
                 die(new_fd, "On accepting");
 
                 // chercher une case libre, la case 0 est réservée à la socket d'écoute
@@ -145,9 +154,19 @@ int main(int argc, char** argv) {
                     // aucune place disponible
                     close(new_fd);
                 } else {
-                    fds[j].fd = new_fd;    // ajouter le client dans la case libre
-                    fds[j].events = POLLIN; // surveiller les données à lire sur ce client
-                    fds[j].revents = 0;    // effacer les événements de cette case
+                    struct connected_client *client = malloc(sizeof *client);
+                    if (client == NULL) {
+                        close(new_fd);
+                        continue;
+                    }
+
+                    client->fd = new_fd;
+                    client->addr = cli;
+                    client->addr_len = len;
+                    client->next = clients;
+                    clients = client;
+
+                    fds[j] = (struct pollfd){ .fd = new_fd, .events = POLLIN };
                 }
             } else if (fds[i].fd >= 0 && fds[i].fd != listen_fd) {
                 if (fds[i].revents & POLLIN) {
@@ -158,10 +177,21 @@ int main(int argc, char** argv) {
                     continue;  // aucun événement à traiter pour ce client
                 }
 
-                close(fds[i].fd);
-                fds[i].fd = -1;
-                fds[i].events = 0;
-                fds[i].revents = 0;
+                int fd = fds[i].fd;
+                struct connected_client **link = &clients;
+
+                while (*link != NULL && (*link)->fd != fd) {
+                    link = &(*link)->next;
+                }
+
+                if (*link != NULL) {
+                    struct connected_client *client = *link;
+                    *link = client->next;
+                    free(client);
+                }
+
+                close(fd);
+                fds[i] = (struct pollfd){ .fd = -1 };
             }
         }
     }
