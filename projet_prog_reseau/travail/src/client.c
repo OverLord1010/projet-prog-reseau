@@ -6,38 +6,57 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <poll.h>
 
 #include "common.h"
 
 void echo_client(int sockfd) {
-	char buff[MSG_LEN];
-	int n;
-	while (1) {
-		// Cleaning memory
-		memset(buff, 0, MSG_LEN);
-		
-		// Getting message from client
-		n = 0;
-		while ((buff[n++] = getchar()) != '\n') {} // trailing '\n' will be sent
+    struct pollfd fds[2] = {
+        { .fd = STDIN_FILENO, .events = POLLIN },
+        { .fd = sockfd,      .events = POLLIN }
+    };
+    char buff[MSG_LEN];
 
-		// Sending message
-		send_next_message_size(sockfd, n);
-		send_message(sockfd, buff, n);
+    while (1) {
+        // attendre une saisie ou des données du serveur
+        if (poll(fds, 2, -1) < 0) {
+            perror("poll");
+            break;
+        }
 
-		printf("Message sent!\n");
-		// Cleaning memory
-		memset(buff, 0, MSG_LEN);
-		// Receiving message
-		int to_read = rcv_next_message_size(sockfd);
-		if (to_read <= 0 || to_read > MSG_LEN) {
-			break;
-		}
+        // socket pret, recevoir et afficher le message
+        if (fds[1].revents & POLLIN) {
+            int taille = rcv_next_message_size(sockfd);
+            if (taille <= 0 || taille > MSG_LEN) {
+                break;
+            }
 
-		if (rcv_message(sockfd, buff, to_read) < 0) {
-			break;
-		}
-		printf("Received: %s\n", buff);
-	}
+            if (rcv_message(sockfd, buff, taille) < 0) {
+                break;
+            }
+
+            printf("Received: %.*s\n", taille, buff);
+        }
+
+        if (fds[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            break;
+        }
+
+        // clavier pret, lire et envoyer la ligne
+        if (fds[0].revents & POLLIN) {
+            if (fgets(buff, sizeof buff, stdin) == NULL) {
+                break;
+            }
+
+            int taille = (int)strlen(buff);
+            send_next_message_size(sockfd, taille);
+            send_message(sockfd, buff, taille);
+        }
+
+        if (fds[0].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            break;
+        }
+    }
 }
 
 int handle_connect(const char *serv_addr, const char *serv_port) {
@@ -80,6 +99,7 @@ int main(int argc, char** argv) {
 
 	int sfd;
 	sfd = handle_connect(serv_addr, serv_port);
+	
 	echo_client(sfd);
 	close(sfd);
 	return EXIT_SUCCESS;
