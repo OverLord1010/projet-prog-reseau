@@ -20,45 +20,42 @@ struct connected_client {
 };
 
 int echo_server(int sockfd) {
-    int to_read = rcv_next_message_size(sockfd);
-
-    if (to_read <= 0) {
-        return -1;  // déconnexion ou erreur de lecture
+    struct message msg;
+    if (rcv_message(sockfd, &msg, sizeof msg) < 0) {
+        return -1;
     }
 
-    printf("Received %d bytes from %d\n", to_read, sockfd);
-
-    char* msg = malloc(sizeof(char)*to_read+1);
-    int bytes_read = rcv_message(sockfd, msg, to_read);
-    if(bytes_read == -1) {
-        free(msg);
-        return 1;
+    char payload[MSG_LEN + 1];
+    if (msg.pld_len < 0 || msg.pld_len > MSG_LEN) {
+        return -1;
     }
+    int bytes_read = rcv_message(sockfd, payload, msg.pld_len);
+    if (bytes_read < 0) {
+        return -1;
+    }
+
     // Terminer le texte pour pouvoir utiliser %s et strcmp().
-
-    if (bytes_read > 0 && msg[bytes_read - 1] == '\n') {
+    if (bytes_read > 0 && payload[bytes_read - 1] == '\n') {
         bytes_read--;
-        }
-    msg[bytes_read] = '\0';
+    }
+    payload[bytes_read] = '\0';
 
-	if (strcmp(msg, "/quit") == 0)
-	{
-		printf("Le client %d a demandé à quitter.\n", sockfd);
-		free(msg);
-		return -1;
-	}
+    if (strcmp(payload, "/quit") == 0) {
+        printf("Le client %d a demandé à quitter.\n", sockfd);
+        return -1;
+    }
 
-	printf("Message from %d: %s\n", sockfd, msg);
+    printf("Message from %d: %s\n", sockfd, payload);
 
-    char buff[MSG_LEN] = {0};
+    char buff[MSG_LEN];
+    int max_text = (int)(sizeof buff - sizeof "We received '' from you.");
+    snprintf(buff, sizeof buff, "We received '%.*s' from you.", max_text, payload);
 
-    snprintf(buff, sizeof(buff), "We received '%s' from you.", msg);
-    free(msg);
-
-    // Sending message
-    int to_send = strlen(buff) + 1;
-    send_next_message_size(sockfd, to_send);
-    send_message(sockfd, buff, to_send);
+    struct message reply = {0};
+    reply.type = ECHO_SEND;
+    reply.pld_len = (int)strlen(buff);
+    send_message(sockfd, &reply, sizeof reply);
+    send_message(sockfd, buff, reply.pld_len);
 
     printf("Message sent to %d\n\n", sockfd);
 

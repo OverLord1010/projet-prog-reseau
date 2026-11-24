@@ -15,7 +15,7 @@ void echo_client(int sockfd) {
         { .fd = STDIN_FILENO, .events = POLLIN },
         { .fd = sockfd,      .events = POLLIN }
     };
-    char buff[MSG_LEN];
+    char payload[MSG_LEN];
 
     while (1) {
         // attendre une saisie ou des données du serveur
@@ -26,16 +26,17 @@ void echo_client(int sockfd) {
 
         // socket pret, recevoir et afficher le message
         if (fds[1].revents & POLLIN) {
-            int size = rcv_next_message_size(sockfd);
-            if (size <= 0 || size > MSG_LEN) {
+            struct message msg = {0};
+            msg.type = ECHO_SEND;
+            if (rcv_message(sockfd, &msg, sizeof msg) < 0) {
                 break;
             }
 
-            if (rcv_message(sockfd, buff, size) < 0) {
+            if (rcv_message(sockfd, payload, msg.pld_len) < 0) {
                 break;
             }
 
-            printf("Received: %.*s\n", size, buff);
+            printf("Received: %.*s\n", msg.pld_len, payload);
         }
 
         if (fds[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
@@ -44,15 +45,18 @@ void echo_client(int sockfd) {
 
         // clavier pret, lire et envoyer la ligne
         if (fds[0].revents & POLLIN) {
-            if (fgets(buff, sizeof buff, stdin) == NULL) {
+            if (fgets(payload, sizeof payload, stdin) == NULL) {
                 break;
             }
 
-            int size = (int)strlen(buff);
-            send_next_message_size(sockfd, size);
-            send_message(sockfd, buff, size);
+            struct message msg = {0};
+            msg.type = ECHO_SEND;
+            msg.pld_len = (int)strlen(payload);
 
-			if (strcmp(buff, "/quit\n") != 0) {
+            send_message(sockfd, &msg, sizeof msg);
+            send_message(sockfd, payload, msg.pld_len);
+
+			if (strcmp(payload, "/quit\n") != 0) {
 				printf("Message sent!\n");
 			}
         }
