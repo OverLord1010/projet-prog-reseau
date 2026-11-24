@@ -26,16 +26,16 @@ void echo_client(int sockfd) {
 
         // socket pret, recevoir et afficher le message
         if (fds[1].revents & POLLIN) {
-            int taille = rcv_next_message_size(sockfd);
-            if (taille <= 0 || taille > MSG_LEN) {
+            int size = rcv_next_message_size(sockfd);
+            if (size <= 0 || size > MSG_LEN) {
                 break;
             }
 
-            if (rcv_message(sockfd, buff, taille) < 0) {
+            if (rcv_message(sockfd, buff, size) < 0) {
                 break;
             }
 
-            printf("Received: %.*s\n", taille, buff);
+            printf("Received: %.*s\n", size, buff);
         }
 
         if (fds[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
@@ -48,9 +48,13 @@ void echo_client(int sockfd) {
                 break;
             }
 
-            int taille = (int)strlen(buff);
-            send_next_message_size(sockfd, taille);
-            send_message(sockfd, buff, taille);
+            int size = (int)strlen(buff);
+            send_next_message_size(sockfd, size);
+            send_message(sockfd, buff, size);
+
+			if (strcmp(buff, "/quit\n") != 0) {
+				printf("Message sent!\n");
+			}
         }
 
         if (fds[0].revents & (POLLHUP | POLLERR | POLLNVAL)) {
