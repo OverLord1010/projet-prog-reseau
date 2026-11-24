@@ -14,8 +14,6 @@ const char *fonction(const char *commande) {
     char cmd[32];
     char arg[NICK_LEN];
 
-    // who
-
     int n = sscanf(commande, "%31s %31[^\n]", cmd, arg);
 
     if (n >= 1 && strcmp(cmd, "/nick") == 0)

@@ -19,7 +19,7 @@ struct connected_client {
     struct connected_client *next;
 };
 
-int echo_server(int sockfd) {
+int echo_server(int sockfd, struct connected_client * client) {
     struct message msg;
     if (rcv_message(sockfd, &msg, sizeof msg) < 0) {
         return -1;
@@ -43,6 +43,16 @@ int echo_server(int sockfd) {
     if (strcmp(payload, "/quit") == 0) {
         printf("Le client %d a demandé à quitter.\n", sockfd);
         return -1;
+    }
+
+    else if (strcmp(payload, "/who") == 0)
+    {
+        printf("Le client %d a demandé à voir tous les utilisateurs.\n", sockfd);
+
+        while(client->next != NULL){
+            printf("%d\n", client->fd);
+            client = client->next;
+        }
     }
 
     printf("Message from %d: %s\n", sockfd, payload);
@@ -167,7 +177,8 @@ int main(int argc, char** argv) {
                 }
             } else if (fds[i].fd >= 0 && fds[i].fd != listen_fd) {
                 if (fds[i].revents & POLLIN) {
-                    if (echo_server(fds[i].fd) == 0) {
+                    if (echo_server(fds[i].fd, client) == 0)
+                    {
                         continue;  // passer à la case suivante du tableau
                     }
                 } else if (!(fds[i].revents & (POLLHUP | POLLERR))) {
