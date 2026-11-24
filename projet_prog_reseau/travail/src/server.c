@@ -69,7 +69,12 @@ int handle_bind(const char* serv_port) {
 
 int main(int argc, char** argv) {
 
-    const char *serv_port = argc > 1 ? argv[1] : SERV_PORT;
+    if (argc < 2) {
+        printf("Missing argument: server port\n");
+        return EXIT_FAILURE;
+    }
+
+    const char *serv_port = argv[1];
 
 	struct sockaddr cli;
 	int listen_fd, connfd;

@@ -64,8 +64,13 @@ int handle_connect(const char *serv_addr, const char *serv_port) {
 
 int main(int argc, char** argv) {
 
-    const char *serv_addr = argc > 1 ? argv[1] : SERV_ADDR;
-    const char *serv_port = argc > 2 ? argv[2] : SERV_PORT;
+	if (argc < 3) {
+		printf("Missing arguments: server name and port\n");
+		return EXIT_FAILURE;
+	}
+
+    const char *serv_addr = argv[1];
+    const char *serv_port = argv[2];
 
 	int sfd;
 	sfd = handle_connect(serv_addr, serv_port);
