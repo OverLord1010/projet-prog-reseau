@@ -16,10 +16,12 @@ struct connected_client {
     int fd;
     struct sockaddr_storage addr;
     socklen_t addr_len;
+    char nick[16];
     struct connected_client *next;
 };
 
-int echo_server(int sockfd, struct connected_client * client) {
+int echo_server(int sockfd, struct connected_client *client,
+                struct connected_client *clients) {
     struct message msg;
     if (rcv_message(sockfd, &msg, sizeof msg) < 0) {
         return -1;
@@ -41,18 +43,36 @@ int echo_server(int sockfd, struct connected_client * client) {
     payload[bytes_read] = '\0';
 
     if (strcmp(payload, "/quit") == 0) {
-        printf("Le client %d a demandé à quitter.\n", sockfd);
+        printf("%s a demandé à quitter.\n", client->nick);
         return -1;
+    }
+
+    else if (strncmp(payload, "/nick ", 6) == 0) {
+        printf("%s a changé de pseudo : %s\n", client->nick, payload + 6);
+        strcpy(client->nick, payload + 6);
+
+        char buff[MSG_LEN];
+        snprintf(buff, sizeof buff, "Your new nickname is %s.", client->nick);
+
+        struct message reply = {0};
+        reply.type = ECHO_SEND;
+        reply.pld_len = (int)strlen(buff);
+        send_message(sockfd, &reply, sizeof reply);
+        send_message(sockfd, buff, reply.pld_len);
+
+        printf("Message sent to %s\n\n", client->nick);
+
+        return 0;
     }
 
     else if (strcmp(payload, "/who") == 0)
     {
-        printf("Le client %d a demandé à voir tous les utilisateurs.\n", sockfd);
+        printf("%s a demandé à voir tous les utilisateurs.\n", client->nick);
 
-        if (client->next == NULL) {
+        if (clients->next == NULL) {
             printf("Le client est seul sur le serveur.\n");
             char buff[MSG_LEN];
-            snprintf(buff, sizeof buff, "You are alone, user%d.", client->fd);
+            snprintf(buff, sizeof buff, "You are alone, %s.", client->nick);
 
             struct message reply = {0};
             reply.type = ECHO_SEND;
@@ -60,15 +80,29 @@ int echo_server(int sockfd, struct connected_client * client) {
             send_message(sockfd, &reply, sizeof reply);
             send_message(sockfd, buff, reply.pld_len);
 
-            printf("Message sent to %d\n\n", sockfd);
+            printf("Message sent to %s\n\n", client->nick);
 
-    return 0;
+            return 0;
         }
         else {
-            while(client->next != NULL){
-                printf("%d\n", client->fd);
-                client = client->next;
+            char buff[MSG_LEN] = "";
+            size_t longueur = 0;
+            struct connected_client *courant = clients;
+
+            while (courant != NULL) {
+                longueur += snprintf(buff + longueur, sizeof buff - longueur,
+                                    "%s\n", courant->nick);
+                courant = courant->next;
             }
+
+            struct message reply = {0};
+            reply.type = ECHO_SEND;  // Même type que ta réponse « You are alone »
+            reply.pld_len = (int)longueur;
+
+            send_message(sockfd, &reply, sizeof reply);
+            send_message(sockfd, buff, reply.pld_len);
+
+            return 0;
         }
     }
 
@@ -171,18 +205,14 @@ static void run_poll_loop(int listen_fd) {
                     client->fd = new_fd;
                     client->addr = cli;
                     client->addr_len = len;
+                    strcpy(client->nick, "new_user");
                     client->next = clients;
                     clients = client;
 
                     fds[j] = (struct pollfd){ .fd = new_fd, .events = POLLIN };
                 }
             } else if (fds[i].fd >= 0 && fds[i].fd != listen_fd) {
-                if (fds[i].revents & POLLIN) {
-                    if (echo_server(fds[i].fd, clients) == 0)
-                    {
-                        continue;  // passer à la case suivante du tableau
-                    }
-                } else if (!(fds[i].revents & (POLLHUP | POLLERR))) {
+                if (!(fds[i].revents & (POLLIN | POLLHUP | POLLERR))) {
                     continue;  // aucun événement à traiter pour ce client
                 }
 
@@ -195,6 +225,10 @@ static void run_poll_loop(int listen_fd) {
 
                 if (*link != NULL) {
                     struct connected_client *client = *link;
+                    if ((fds[i].revents & POLLIN) &&
+                        echo_server(fd, client, clients) == 0) {
+                        continue;
+                    }
                     *link = client->next;
                     free(client);
                 }
