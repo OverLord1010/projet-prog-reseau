@@ -49,7 +49,8 @@ int echo_server(int sockfd, struct connected_client *client,
 
     else if (strncmp(payload, "/nick ", 6) == 0) {
         printf("%s a changé de pseudo : %s\n", client->nick, payload + 6);
-        strcpy(client->nick, payload + 6);
+        // permet de tronquer le pseudo s'il est trop long
+        snprintf(client->nick, sizeof client->nick, "%s", payload + 6);
 
         char buff[MSG_LEN];
         snprintf(buff, sizeof buff, "Your new nickname is %s.", client->nick);
