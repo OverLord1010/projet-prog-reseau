@@ -52,8 +52,8 @@ int echo_server(int sockfd, struct connected_client *client,
 
         while (courant != NULL) {
             if (strcmp(courant->nick, payload + 6) == 0) {
-                char buff[MSG_LEN];
-                snprintf(buff, sizeof buff, "Sorry, the nickname '%s' is already taken.\n", payload + 6);
+                char* buff = "Nickname already taken.\n";
+                
 
                 struct message reply = {0};
                 reply.type = ECHO_SEND;
@@ -70,7 +70,7 @@ int echo_server(int sockfd, struct connected_client *client,
         snprintf(client->nick, sizeof client->nick, "%s", payload + 6);
 
         char buff[MSG_LEN];
-        snprintf(buff, sizeof buff, "Your new nickname is %s.", client->nick);
+        snprintf(buff, sizeof buff, "Your new nickname is %s.\n", client->nick);
 
         struct message reply = {0};
         reply.type = ECHO_SEND;
