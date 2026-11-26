@@ -190,9 +190,10 @@ static void run_poll_loop(int sockfd) {
                         printf("Erreur dans la commande.\nVeuillez utiliser la commande par /msgall <message>\n\n");
                         continue;
                     }
+                    const char *texte = payload + debut_texte;
+
                     msg.type = BROADCAST_SEND;
-                    msg.pld_len = (int)strlen(payload);
-                    snprintf(msg.infos, sizeof msg.infos, "%s", arg);
+                    msg.pld_len = (int)strlen(texte);
 
                     send_message(sockfd, &msg, sizeof msg);
                     send_message(sockfd, payload, msg.pld_len);
