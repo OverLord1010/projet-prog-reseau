@@ -9,6 +9,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <poll.h>
+#include <time.h> 
 
 #include "common.h"
 
@@ -17,6 +18,7 @@ struct connected_client {
     struct sockaddr_storage addr;
     socklen_t addr_len;
     char nick[16];
+    time_t connection;
     struct connected_client *next;
 };
 
@@ -124,6 +126,49 @@ int echo_server(int sockfd, struct connected_client *client,
         }
     }
 
+    else if (msg.type == NICKNAME_INFOS) {
+        printf("%s a demandé à voir les infos de %s.\n", client->nick, msg.infos);
+
+        struct connected_client *courant = clients;
+
+        while(strcmp(courant->nick, msg.infos) != 0) {
+            courant = courant->next;
+        }
+
+        if (courant != NULL) {
+            char buff[MSG_LEN];
+
+            char date[32] = "inconnue";
+            struct tm *heure = localtime(&courant->connection);
+            if (heure != NULL) {
+                strftime(date, sizeof date, "%Y/%m/%d@%H:%M", heure);
+            }
+
+            char ip[NI_MAXHOST];
+            char port[NI_MAXSERV];
+
+            getnameinfo((struct sockaddr *)&courant->addr, courant->addr_len, ip, sizeof ip, port, sizeof port, NI_NUMERICHOST | NI_NUMERICSERV);
+            snprintf(buff, sizeof buff, "%s connected since %s with IP address %s and port number %s.\n", courant->nick, date, ip, port);
+
+            struct message reply = {0};
+            reply.type = ECHO_SEND;
+            reply.pld_len = (int)strlen(buff);
+            send_message(sockfd, &reply, sizeof reply);
+            send_message(sockfd, buff, reply.pld_len);
+
+        }
+        else {
+            char* buff = "This user is not connected.\n";
+            struct message reply = {0};
+            reply.type = ECHO_SEND;
+            reply.pld_len = (int)strlen(buff);
+            send_message(sockfd, &reply, sizeof reply);
+            send_message(sockfd, buff, reply.pld_len);
+        }
+        return 0;
+        
+    }
+
     printf("Message from %d: %s\n", sockfd, payload);
 
     char buff[MSG_LEN];
@@ -224,6 +269,7 @@ static void run_poll_loop(int listen_fd) {
                     client->addr = cli;
                     client->addr_len = len;
                     strcpy(client->nick, "new_user");
+                    client->connection = time(NULL);
                     client->next = clients;
                     clients = client;
 
