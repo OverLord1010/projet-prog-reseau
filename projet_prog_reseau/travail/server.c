@@ -176,7 +176,6 @@ int echo_server(int sockfd, struct connected_client *client,
         struct connected_client *courant = clients;
 
         while(courant != NULL) {
-            printf("%s", courant->nick);
             if (strcmp(msg.infos, courant->nick) == 0) {
                 break;
             }
@@ -199,6 +198,37 @@ int echo_server(int sockfd, struct connected_client *client,
             reply.pld_len = (int)strlen(buff);
             send_message(sockfd, &reply, sizeof reply);
             send_message(sockfd, buff, reply.pld_len);
+        }
+
+        return 0;
+    }
+
+    else if (msg.type == BROADCAST_SEND) {
+        struct connected_client *courant = clients;
+
+        char buff[MSG_LEN];
+        snprintf(buff, sizeof buff, "[%s]: %s", client->nick, payload);
+        struct message reply = {0};
+        reply.type = ECHO_SEND;
+        reply.pld_len = (int)strlen(buff);
+
+        if (courant->next == NULL) {
+            char* buff = "You are alone, thus you cannot broadcast a message.\n";
+            struct message reply = {0};
+            reply.type = ECHO_SEND;
+            reply.pld_len = (int)strlen(buff);
+            send_message(sockfd, &reply, sizeof reply);
+            send_message(sockfd, buff, reply.pld_len);
+
+            return 0;
+        }
+
+        while (courant != NULL) {
+            if (courant->fd != sockfd) {
+                send_message(courant->fd, &reply, sizeof reply);
+                send_message(courant->fd, buff, reply.pld_len);
+            }
+            courant = courant->next;
         }
 
         return 0;

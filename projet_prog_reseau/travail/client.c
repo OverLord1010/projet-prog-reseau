@@ -185,23 +185,25 @@ static void run_poll_loop(int sockfd) {
 
                 if (strcmp(cmd, "/msgall") == 0)
                 {
+                    int debut_texte = 0;
                     if (n != 2)
                     {
                         printf("Erreur dans la commande.\nVeuillez utiliser la commande par /msgall <message>\n\n");
                         continue;
                     }
-                    const char *texte = payload + debut_texte;
+                    sscanf(payload, "%*s %n", &debut_texte);
+                    char *texte = payload + debut_texte;
 
                     msg.type = BROADCAST_SEND;
                     msg.pld_len = (int)strlen(texte);
 
                     send_message(sockfd, &msg, sizeof msg);
-                    send_message(sockfd, payload, msg.pld_len);
+                    send_message(sockfd, texte, msg.pld_len);
 
                     continue;
                 }
 
-               if (strcmp(cmd, "/msg") == 0) {
+                if (strcmp(cmd, "/msg") == 0) {
                     char pseudo[NICK_LEN];
                     int debut_texte = 0;
 
@@ -211,7 +213,7 @@ static void run_poll_loop(int sockfd) {
                         continue;
                     }
 
-                    const char *texte = payload + debut_texte;
+                    char *texte = payload + debut_texte;
 
                     msg.type = UNICAST_SEND;
                     snprintf(msg.infos, sizeof msg.infos, "%s", pseudo);
