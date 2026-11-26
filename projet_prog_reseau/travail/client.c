@@ -10,6 +10,8 @@
 
 #include "common.h"
 
+//#define isauth "False"
+
 const char *fonction(const char *commande, char arg[NICK_LEN]) {
     char cmd[32];
 
@@ -55,8 +57,10 @@ static void run_poll_loop(int sockfd) {
         { .fd = sockfd,      .events = POLLIN }
     };
     char payload[MSG_LEN];
+    char * isauth = "False";
 
-    while (1) {
+        while (1)
+    {
         // attendre une saisie ou des données du serveur
         if (poll(fds, 2, -1) < 0) {
             perror("poll");
@@ -88,18 +92,41 @@ static void run_poll_loop(int sockfd) {
                 break;
             }
 
-            struct message msg = {0};
-            msg.type = ECHO_SEND;
-            msg.pld_len = (int)strlen(payload);
+            char cmd[32];
+            char arg[NICK_LEN];
+            sscanf(payload, "%31s %31[^\n]", cmd, arg);
 
-            send_message(sockfd, &msg, sizeof msg);
-            send_message(sockfd, payload, msg.pld_len);
+            if (strcmp(isauth, "False") == 0) {
+                if (strcmp(cmd, "/nick") == 0)
+                {
+                    printf("Vous allez vous authentifier en tant que %s\n", arg);
+                    struct message msg = {0};
+                    msg.type = NICKNAME_NEW;
+                    msg.pld_len = (int)strlen(payload);
 
-			if (strcmp(payload, "/quit\n") != 0) {
-                char arg[NICK_LEN];
-                const char *test = fonction(payload, arg);
-				printf("Message sent!\n");
-			}
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+                    isauth = "True";
+                }
+                else
+                {
+                    printf("Veuillez d'abord vous authentifier avec la commande /nick <pseudo>\n");
+                }
+            } else {
+                struct message msg = {0};
+                msg.type = ECHO_SEND;
+                msg.pld_len = (int)strlen(payload);
+
+                send_message(sockfd, &msg, sizeof msg);
+                send_message(sockfd, payload, msg.pld_len);
+
+                if (strcmp(payload, "/quit\n") != 0)
+                {
+                    char arg[NICK_LEN];
+                    const char *test = fonction(payload, arg);
+                    printf("Message sent!%s\n", test);
+                }
+            }                    
         }
 
         if (fds[0].revents & (POLLHUP | POLLERR | POLLNVAL)) {
