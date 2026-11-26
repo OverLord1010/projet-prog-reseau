@@ -131,7 +131,11 @@ int echo_server(int sockfd, struct connected_client *client,
 
         struct connected_client *courant = clients;
 
-        while(strcmp(courant->nick, msg.infos) != 0) {
+        while(courant != NULL) {
+            printf("%s\n", courant->nick);
+            if (strcmp(msg.infos, courant->nick) == 0) {
+                break;
+            }
             courant = courant->next;
         }
 
@@ -148,7 +152,8 @@ int echo_server(int sockfd, struct connected_client *client,
             char port[NI_MAXSERV];
 
             getnameinfo((struct sockaddr *)&courant->addr, courant->addr_len, ip, sizeof ip, port, sizeof port, NI_NUMERICHOST | NI_NUMERICSERV);
-            snprintf(buff, sizeof buff, "%s connected since %s with IP address %s and port number %s.\n", courant->nick, date, ip, port);
+            const char *ip_affichee = strncmp(ip, "::ffff:", 7) == 0 ? ip + 7 : ip;
+            snprintf(buff, sizeof buff, "%s connected since %s with IP address %s and port number %s.\n", courant->nick, date, ip_affichee, port);
 
             struct message reply = {0};
             reply.type = ECHO_SEND;
