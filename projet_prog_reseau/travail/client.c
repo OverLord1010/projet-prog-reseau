@@ -48,7 +48,7 @@ const char *fonction(const char *commande, char arg[NICK_LEN]) {
         else
             printf("Erreur dans le msgall\n");
     }
-        return "yo";
+        return "";
 }
 
 static void run_poll_loop(int sockfd) {
@@ -79,6 +79,9 @@ static void run_poll_loop(int sockfd) {
                 break;
             }
 
+            if (strcmp(payload, "Nickname already taken.\n") != 0)
+                isauth = "True";
+
             printf("Received: %.*s\n", msg.pld_len, payload);
         }
 
@@ -97,16 +100,25 @@ static void run_poll_loop(int sockfd) {
             sscanf(payload, "%31s %31[^\n]", cmd, arg);
 
             if (strcmp(isauth, "False") == 0) {
+                if (strcmp(cmd, "/quit") == 0)
+                {
+                    struct message msg = {0};
+                    msg.type = ECHO_SEND;
+                    msg.pld_len = (int)strlen(payload);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+                }
+
+                
                 if (strcmp(cmd, "/nick") == 0)
                 {
-                    printf("Vous allez vous authentifier en tant que %s\n", arg);
                     struct message msg = {0};
                     msg.type = NICKNAME_NEW;
                     msg.pld_len = (int)strlen(payload);
 
                     send_message(sockfd, &msg, sizeof msg);
                     send_message(sockfd, payload, msg.pld_len);
-                    isauth = "True";
                 }
                 else
                 {
