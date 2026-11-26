@@ -45,7 +45,7 @@ int echo_server(int sockfd, struct connected_client *client,
     payload[bytes_read] = '\0';
 
     if (strcmp(payload, "/quit") == 0) {
-        printf("%s a demandé à quitter.\n", client->nick);
+        printf("%s asked to quit.\n", client->nick);
         return -1;
     }
 
@@ -67,7 +67,7 @@ int echo_server(int sockfd, struct connected_client *client,
             }
             courant = courant->next;
         }
-        printf("%s a changé de pseudo : %s\n", client->nick, msg.infos);
+        printf("%s updated their nickname : %s\n", client->nick, msg.infos);
         // permet de tronquer le pseudo s'il est trop long
         snprintf(client->nick, sizeof client->nick, "%s", msg.infos);
 
@@ -90,7 +90,6 @@ int echo_server(int sockfd, struct connected_client *client,
         printf("%s a demandé à voir tous les utilisateurs.\n", client->nick);
 
         if (clients->next == NULL) {
-            printf("Le client est seul sur le serveur.\n");
             char buff[MSG_LEN];
             snprintf(buff, sizeof buff, "You are alone, %s.", client->nick);
 
@@ -127,7 +126,7 @@ int echo_server(int sockfd, struct connected_client *client,
     }
 
     else if (msg.type == NICKNAME_INFOS) {
-        printf("%s a demandé à voir les infos de %s.\n", client->nick, msg.infos);
+        printf("%s asked to see %s's infos.\n", client->nick, msg.infos);
 
         struct connected_client *courant = clients;
 
@@ -141,7 +140,7 @@ int echo_server(int sockfd, struct connected_client *client,
         if (courant != NULL) {
             char buff[MSG_LEN];
 
-            char date[32] = "inconnue";
+            char date[32] = "unknown";
             struct tm *heure = localtime(&courant->connection);
             if (heure != NULL) {
                 strftime(date, sizeof date, "%Y/%m/%d@%H:%M", heure);
@@ -174,6 +173,8 @@ int echo_server(int sockfd, struct connected_client *client,
     }
     else if (msg.type == UNICAST_SEND) {
         struct connected_client *courant = clients;
+
+        printf("%s is trying to send a message to %s.\n", client->nickname, msg.infos);
 
         while(courant != NULL) {
             if (strcmp(msg.infos, courant->nick) == 0) {
@@ -211,6 +212,8 @@ int echo_server(int sockfd, struct connected_client *client,
         struct message reply = {0};
         reply.type = ECHO_SEND;
         reply.pld_len = (int)strlen(buff);
+
+        printf("%s is trying to broadcast a message.\n", client->nickname);
 
         if (courant->next == NULL) {
             char* buff = "You are alone, thus you cannot broadcast a message.\n";

@@ -10,45 +10,6 @@
 
 #include "common.h"
 
-const char *fonction(const char *commande, char arg[NICK_LEN]) {
-    char cmd[32];
-
-    // who
-
-    int n = sscanf(commande, "%31s %31[^\n]", cmd, arg);
-
-    if (n >= 1 && strcmp(cmd, "/nick") == 0)
-    {
-        if (n == 2){
-            printf("Nouveau pseudo : %s\n", arg);
-            return arg;
-        }
-        else
-            printf("Erreur dans le pseudo\n");
-    }
-
-    else if (n >= 1 && strcmp(cmd, "/whois") == 0)
-    {
-        if (n == 2) {
-            printf("Qui est : %s ?\n", arg);
-            return arg;
-        }
-        else printf("Erreur dans le whois\n");
-    }
-
-    else if (n >= 1 && strcmp(cmd, "/msgall") == 0)
-    {
-        if (n == 2)
-        {
-            printf("Message à tous : %s\n", arg);
-            return arg;
-        }
-        else
-            printf("Erreur dans le msgall\n");
-    }
-        return "";
-}
-
 static void run_poll_loop(int sockfd) {
     struct pollfd fds[2] = {
         { .fd = STDIN_FILENO, .events = POLLIN },
@@ -80,7 +41,7 @@ static void run_poll_loop(int sockfd) {
             if (strcmp(payload, "Nickname already taken.\n") != 0)
                 isauth = "True";
 
-            printf("Received: %.*s\n", msg.pld_len, payload);
+            printf("%.*s\n", msg.pld_len, payload);
         }
 
         if (fds[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
@@ -232,7 +193,6 @@ static void run_poll_loop(int sockfd) {
                 {
                     char arg[NICK_LEN];
                     const char *test = fonction(payload, arg);
-                    printf("Message sent!%s\n", test);
                 }
                 
             }                    
