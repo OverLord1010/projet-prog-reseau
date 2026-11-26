@@ -48,6 +48,23 @@ int echo_server(int sockfd, struct connected_client *client,
     }
 
     else if (strncmp(payload, "/nick ", 6) == 0) {
+        struct connected_client *courant = clients;
+
+        while (courant != NULL) {
+            if (strcmp(courant->nick, payload + 6) == 0) {
+                char buff[MSG_LEN];
+                snprintf(buff, sizeof buff, "Sorry, the nickname '%s' is already taken.\n", payload + 6);
+
+                struct message reply = {0};
+                reply.type = ECHO_SEND;
+                reply.pld_len = (int)strlen(buff);
+                send_message(sockfd, &reply, sizeof reply);
+                send_message(sockfd, buff, reply.pld_len);
+
+                return 0;
+            }
+            courant = courant->next;
+        }
         printf("%s a changé de pseudo : %s\n", client->nick, payload + 6);
         // permet de tronquer le pseudo s'il est trop long
         snprintf(client->nick, sizeof client->nick, "%s", payload + 6);
