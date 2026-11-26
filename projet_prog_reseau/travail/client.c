@@ -10,8 +10,6 @@
 
 #include "common.h"
 
-//#define isauth "False"
-
 const char *fonction(const char *commande, char arg[NICK_LEN]) {
     char cmd[32];
 
@@ -130,11 +128,35 @@ static void run_poll_loop(int sockfd) {
                     printf("Veuillez d'abord vous authentifier avec la commande /nick <pseudo>\n");
                 }
             } else {
+                char cmd[32];
+                char arg[NICK_LEN];
+                int n = sscanf(payload, "%31s %31[^\n]", cmd, arg);
+                if (n < 1)
+                {
+                    continue;
+                }
+
                 struct message msg = {0};
                 msg.pld_len = (int)strlen(payload);
 
-                if (strcmp(payload, "/who\n") == 0)
+                if (strcmp(cmd, "/nick") == 0)
                 {
+                    msg.type = NICKNAME_NEW;
+                    msg.pld_len = (int)strlen(payload);
+                    snprintf(msg.infos, sizeof msg.infos, "%s", arg);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+
+                    continue;
+                }
+
+                if (strcmp(cmd, "/who") == 0)
+                {
+                    if (n != 1){
+                        printf("Erreur dans la commande.\nVeuillez utiliser la commande par /who\n\n");
+                        continue;
+                    }
                     msg.type = NICKNAME_LIST;
                     msg.pld_len = (int)strlen(payload);
 
@@ -144,6 +166,56 @@ static void run_poll_loop(int sockfd) {
                     continue;
                 }
 
+                if (strcmp(cmd, "/whois") == 0)
+                {
+                    if (n != 2)
+                    {
+                        printf("Erreur dans la commande.\nVeuillez utiliser la commande par /whois <pseudo>\n\n");
+                        continue;
+                    }
+                    msg.type = NICKNAME_INFOS;
+                    msg.pld_len = (int)strlen(payload);
+                    snprintf(msg.infos, sizeof msg.infos, "%s", arg);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+
+                    continue;
+                }
+
+                if (strcmp(cmd, "/msgall") == 0)
+                {
+                    if (n != 2)
+                    {
+                        printf("Erreur dans la commande.\nVeuillez utiliser la commande par /msgall <message>\n\n");
+                        continue;
+                    }
+                    msg.type = BROADCAST_SEND;
+                    msg.pld_len = (int)strlen(payload);
+                    snprintf(msg.infos, sizeof msg.infos, "%s", arg);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+
+                    continue;
+                }
+
+                if (strcmp(cmd, "/msg") == 0)
+                {
+                    if (n != 3)
+                    {
+                        printf("Erreur dans la commande.\nVeuillez utiliser la commande par /msg <pseudo> <message>\n\n");
+                        continue;
+                    }
+                    msg.type = UNICAST_SEND;
+                    msg.pld_len = (int)strlen(payload);
+                    snprintf(msg.infos, sizeof msg.infos, "%s", arg);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+
+                    continue;
+                }
 
                 msg.type = ECHO_SEND;
                 send_message(sockfd, &msg, sizeof msg);
