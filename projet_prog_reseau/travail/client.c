@@ -200,20 +200,24 @@ static void run_poll_loop(int sockfd) {
                     continue;
                 }
 
-                if (strcmp(cmd, "/msg") == 0)
-                {
-                    if (n != 3)
-                    {
-                        printf("Erreur dans la commande.\nVeuillez utiliser la commande par /msg <pseudo> <message>\n\n");
+               if (strcmp(cmd, "/msg") == 0) {
+                    char pseudo[NICK_LEN];
+                    int debut_texte = 0;
+
+                    if (sscanf(payload, "%*s %127s %n", pseudo, &debut_texte) != 1 ||
+                        payload[debut_texte] == '\0') {
+                        printf("Utilisation : /msg <pseudo> <message>\n");
                         continue;
                     }
+
+                    const char *texte = payload + debut_texte;
+
                     msg.type = UNICAST_SEND;
-                    msg.pld_len = (int)strlen(payload);
-                    snprintf(msg.infos, sizeof msg.infos, "%s", arg);
+                    snprintf(msg.infos, sizeof msg.infos, "%s", pseudo);
+                    msg.pld_len = (int)strlen(texte);
 
                     send_message(sockfd, &msg, sizeof msg);
-                    send_message(sockfd, payload, msg.pld_len);
-
+                    send_message(sockfd, texte, msg.pld_len);
                     continue;
                 }
 
