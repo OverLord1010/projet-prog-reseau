@@ -49,9 +49,26 @@ int echo_server(int sockfd, struct connected_client * client) {
     {
         printf("Le client %d a demandé à voir tous les utilisateurs.\n", sockfd);
 
-        while(client->next != NULL){
-            printf("%d\n", client->fd);
-            client = client->next;
+        if (client->next == NULL) {
+            printf("Le client est seul sur le serveur.\n");
+            char buff[MSG_LEN];
+            snprintf(buff, sizeof buff, "You are alone, user%d.", client->fd);
+
+            struct message reply = {0};
+            reply.type = ECHO_SEND;
+            reply.pld_len = (int)strlen(buff);
+            send_message(sockfd, &reply, sizeof reply);
+            send_message(sockfd, buff, reply.pld_len);
+
+            printf("Message sent to %d\n\n", sockfd);
+
+    return 0;
+        }
+        else {
+            while(client->next != NULL){
+                printf("%d\n", client->fd);
+                client = client->next;
+            }
         }
     }
 
@@ -102,23 +119,7 @@ int handle_bind(const char* serv_port) {
 	return sfd;
 }
 
-int main(int argc, char** argv) {
-
-    if (argc < 2) {
-        printf("Missing argument: server port\n");
-        return EXIT_FAILURE;
-    }
-
-    const char *serv_port = argv[1];
-
-	int listen_fd;
-	listen_fd = handle_bind(serv_port);
-	if ((listen(listen_fd, SOMAXCONN)) != 0) {
-		perror("listen()\n");
-		exit(EXIT_FAILURE);
-	}
-    printf("listening on port %s\n", serv_port);
-
+static void run_poll_loop(int listen_fd) {
     struct connected_client *clients = NULL;
 
     // Gestion de plusieurs client en simultané
@@ -177,7 +178,7 @@ int main(int argc, char** argv) {
                 }
             } else if (fds[i].fd >= 0 && fds[i].fd != listen_fd) {
                 if (fds[i].revents & POLLIN) {
-                    if (echo_server(fds[i].fd, client) == 0)
+                    if (echo_server(fds[i].fd, clients) == 0)
                     {
                         continue;  // passer à la case suivante du tableau
                     }
@@ -203,7 +204,28 @@ int main(int argc, char** argv) {
             }
         }
     }
-	
+}
+
+int main(int argc, char** argv) {
+
+    if (argc < 2) {
+        printf("Missing argument: server port\n");
+        return EXIT_FAILURE;
+    }
+
+    const char *serv_port = argv[1];
+
+	int listen_fd;
+	listen_fd = handle_bind(serv_port);
+	if ((listen(listen_fd, SOMAXCONN)) != 0) {
+		perror("listen()\n");
+		exit(EXIT_FAILURE);
+	}
+    printf("listening on port %s\n", serv_port);
+
+    run_poll_loop(listen_fd);
+
+
 	close(listen_fd);
 	return EXIT_SUCCESS;
 }

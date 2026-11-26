@@ -10,9 +10,10 @@
 
 #include "common.h"
 
-const char *fonction(const char *commande) {
+const char *fonction(const char *commande, char arg[NICK_LEN]) {
     char cmd[32];
-    char arg[NICK_LEN];
+
+    // who
 
     int n = sscanf(commande, "%31s %31[^\n]", cmd, arg);
 
@@ -48,7 +49,7 @@ const char *fonction(const char *commande) {
         return "yo";
 }
 
-void echo_client(int sockfd) {
+static void run_poll_loop(int sockfd) {
     struct pollfd fds[2] = {
         { .fd = STDIN_FILENO, .events = POLLIN },
         { .fd = sockfd,      .events = POLLIN }
@@ -95,8 +96,8 @@ void echo_client(int sockfd) {
             send_message(sockfd, payload, msg.pld_len);
 
 			if (strcmp(payload, "/quit\n") != 0) {
-                const char *test = fonction(payload);
-                printf("%s",test);
+                char arg[NICK_LEN];
+                const char *test = fonction(payload, arg);
 				printf("Message sent!\n");
 			}
         }
@@ -136,20 +137,14 @@ int handle_connect(const char *serv_addr, const char *serv_port) {
 }
 
 int main(int argc, char** argv) {
+    if (argc < 3) {
+        printf("Missing arguments: server name and port\n");
+        return EXIT_FAILURE;
+    }
 
-	if (argc < 3) {
-		printf("Missing arguments: server name and port\n");
-		return EXIT_FAILURE;
-	}
-
-    const char *serv_addr = argv[1];
-    const char *serv_port = argv[2];
-
-	int sfd;
-	sfd = handle_connect(serv_addr, serv_port);
-	
-	echo_client(sfd);
-	close(sfd);
-	return EXIT_SUCCESS;
+    int sockfd = handle_connect(argv[1], argv[2]);
+    run_poll_loop(sockfd);
+    close(sockfd);
+    return EXIT_SUCCESS;
 }
 
