@@ -47,11 +47,11 @@ int echo_server(int sockfd, struct connected_client *client,
         return -1;
     }
 
-    else if (strncmp(payload, "/nick ", 6) == 0) {
+    else if (msg.type == NICKNAME_NEW) {
         struct connected_client *courant = clients;
 
         while (courant != NULL) {
-            if (strcmp(courant->nick, payload + 6) == 0) {
+            if (strcmp(courant->nick, msg.infos) == 0) {
                 char* buff = "Nickname already taken.\n";
                 
 
@@ -65,9 +65,9 @@ int echo_server(int sockfd, struct connected_client *client,
             }
             courant = courant->next;
         }
-        printf("%s a changé de pseudo : %s\n", client->nick, payload + 6);
+        printf("%s a changé de pseudo : %s\n", client->nick, msg.infos);
         // permet de tronquer le pseudo s'il est trop long
-        snprintf(client->nick, sizeof client->nick, "%s", payload + 6);
+        snprintf(client->nick, sizeof client->nick, "%s", msg.infos);
 
         char buff[MSG_LEN];
         snprintf(buff, sizeof buff, "Your new nickname is %s.\n", client->nick);
@@ -83,7 +83,7 @@ int echo_server(int sockfd, struct connected_client *client,
         return 0;
     }
 
-    else if (strcmp(payload, "/who") == 0)
+    else if (msg.type == NICKNAME_LIST)
     {
         printf("%s a demandé à voir tous les utilisateurs.\n", client->nick);
 

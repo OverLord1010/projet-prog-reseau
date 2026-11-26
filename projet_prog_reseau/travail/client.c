@@ -97,7 +97,10 @@ static void run_poll_loop(int sockfd) {
 
             char cmd[32];
             char arg[NICK_LEN];
-            sscanf(payload, "%31s %31[^\n]", cmd, arg);
+            int n = sscanf(payload, "%31s %31[^\n]", cmd, arg);
+            if (n < 1) {
+                continue;
+            }
 
             if (strcmp(isauth, "False") == 0) {
                 if (strcmp(cmd, "/quit") == 0)
@@ -111,25 +114,38 @@ static void run_poll_loop(int sockfd) {
                 }
 
 
-                if (strcmp(cmd, "/nick") == 0)
+                if (n == 2 && strcmp(cmd, "/nick") == 0)
                 {
                     struct message msg = {0};
                     msg.type = NICKNAME_NEW;
                     msg.pld_len = (int)strlen(payload);
-                    msg.infos = arg;
+                    snprintf(msg.infos, sizeof msg.infos, "%s", arg);
 
                     send_message(sockfd, &msg, sizeof msg);
                     send_message(sockfd, payload, msg.pld_len);
                 }
+                
                 else
                 {
                     printf("Veuillez d'abord vous authentifier avec la commande /nick <pseudo>\n");
                 }
             } else {
                 struct message msg = {0};
-                msg.type = ECHO_SEND;
                 msg.pld_len = (int)strlen(payload);
 
+                if (strcmp(payload, "/who\n") == 0)
+                {
+                    msg.type = NICKNAME_LIST;
+                    msg.pld_len = (int)strlen(payload);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+
+                    continue;
+                }
+
+
+                msg.type = ECHO_SEND;
                 send_message(sockfd, &msg, sizeof msg);
                 send_message(sockfd, payload, msg.pld_len);
 
@@ -139,6 +155,7 @@ static void run_poll_loop(int sockfd) {
                     const char *test = fonction(payload, arg);
                     printf("Message sent!%s\n", test);
                 }
+                
             }                    
         }
 
