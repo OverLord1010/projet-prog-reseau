@@ -110,12 +110,13 @@ static void run_poll_loop(int sockfd) {
                     send_message(sockfd, payload, msg.pld_len);
                 }
 
-                
+
                 if (strcmp(cmd, "/nick") == 0)
                 {
                     struct message msg = {0};
                     msg.type = NICKNAME_NEW;
                     msg.pld_len = (int)strlen(payload);
+                    msg.infos = arg;
 
                     send_message(sockfd, &msg, sizeof msg);
                     send_message(sockfd, payload, msg.pld_len);
