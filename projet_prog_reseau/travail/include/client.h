@@ -1,4 +1,5 @@
 #include <sys/stat.h>
+#include <sys/time.h>
 
 // ouvre une socket pour recevoir la connexion directe
 static int open_listen_socket(int sockfd, char *adresse, size_t taille)
@@ -171,12 +172,13 @@ static void annuler_demande(struct pollfd *ecoute,
     nom_recu[0] = '\0';
 }
 
+
 static void envoyer_fichier(int fd, const char *chemin)
 {
     FILE *fichier = fopen(chemin, "rb");
     if (fichier == NULL) {
         perror(chemin);
-        return;
+        goto nettoyage;
     }
 
     const char *slash = strrchr(chemin, '/');
@@ -192,117 +194,142 @@ static void envoyer_fichier(int fd, const char *chemin)
         msg.pld_len = (int)lus;
         if (send_frame(fd, &msg, bloc) < 0) {
             fprintf(stderr, "Impossible d'envoyer un bloc.\n");
-            fclose(fichier);
-            return;
+            goto nettoyage;
         }
     }
 
     if (ferror(fichier)) {
         perror("fread");
-        fclose(fichier);
-        return;
+        goto nettoyage;
     }
-    fclose(fichier);
 
     msg.pld_len = 0;
     if (send_frame(fd, &msg, NULL) < 0) {
         fprintf(stderr, "Impossible d'envoyer le marqueur de fin.\n");
-        return;
+        goto nettoyage;
+    }
+
+    struct timeval delai = { .tv_sec = 10, .tv_usec = 0 };
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &delai, sizeof delai) < 0) {
+        perror("setsockopt");
+        fprintf(stderr, "Transfert non confirmé.\n");
+        goto nettoyage;
     }
 
     struct message ack;
     if (recv_frame(fd, &ack, NULL, 0) < 0 ||
         ack.type != FILE_ACK ||
-        strcmp(ack.infos, msg.infos) != 0 ||
-        ack.pld_len != 0) {
-        fprintf(stderr, "ACK absent ou invalide.\n");
-        return;
+        ack.pld_len != 0 ||
+        strcmp(ack.infos, msg.infos) != 0) {
+        fprintf(stderr, "Transfert non confirmé : ACK absent ou invalide.\n");
+        goto nettoyage;
     }
 
-    puts("Bob a reçu le fichier");
+    puts("Bob a confirmé la sauvegarde du fichier.");
+
+nettoyage:
+    if (fichier != NULL)
+        fclose(fichier);
+    close(fd);
 }
 
 static void recevoir_fichier(int fd, const char *nom_accepte)
 {
+    FILE *destination = NULL;
+    int temp_fd = -1;
+    int temporaire_cree = 0;
+    char temporaire[] = ".resa1/inbox/.reception-XXXXXX";
+    char chemin_final[sizeof ".resa1/inbox/" + INFOS_LEN];
+
     if (nom_accepte[0] == '\0' || strcmp(nom_accepte, ".") == 0 ||
         strcmp(nom_accepte, "..") == 0 || strchr(nom_accepte, '/') != NULL ||
         strlen(nom_accepte) >= INFOS_LEN) {
         fprintf(stderr, "Nom de fichier invalide.\n");
-        return;
+        goto nettoyage;
     }
 
     if (mkdir(".resa1", 0700) == -1 && errno != EEXIST) {
         perror(".resa1");
-        return;
+        goto nettoyage;
     }
     if (mkdir(".resa1/inbox", 0700) == -1 && errno != EEXIST) {
         perror(".resa1/inbox");
-        return;
+        goto nettoyage;
     }
 
-    char chemin_final[sizeof ".resa1/inbox/" + INFOS_LEN];
-    snprintf(chemin_final, sizeof chemin_final, ".resa1/inbox/%s", nom_accepte);
+    snprintf(chemin_final, sizeof chemin_final,
+             ".resa1/inbox/%s", nom_accepte);
 
-    char temporaire[] = ".resa1/inbox/.reception-XXXXXX";
-    int temp_fd = mkstemp(temporaire);
+    temp_fd = mkstemp(temporaire);
     if (temp_fd == -1) {
         perror("mkstemp");
-        return;
+        goto nettoyage;
     }
+    temporaire_cree = 1;
 
-    FILE *destination = fdopen(temp_fd, "wb");
+    destination = fdopen(temp_fd, "wb");
     if (destination == NULL) {
         perror("fdopen");
-        close(temp_fd);
-        unlink(temporaire);
-        return;
+        goto nettoyage;
     }
+    temp_fd = -1; // fclose ferme désormais ce descripteur
 
     unsigned char bloc[4096];
     struct message msg;
-    int fin_recue = 0;
 
     for (;;) {
         if (recv_frame(fd, &msg, bloc, sizeof bloc) < 0) {
-            fprintf(stderr, "Réception interrompue.\n");
-            break;
+            fprintf(stderr, "Réception interrompue ou trame invalide.\n");
+            goto nettoyage;
         }
+
         if (msg.type != FILE_SEND || strcmp(msg.infos, nom_accepte) != 0) {
             fprintf(stderr, "Trame inattendue pendant le transfert.\n");
-            break;
-        }
-        if (msg.pld_len == 0) {
-            fin_recue = 1;
-            break;
+            goto nettoyage;
         }
 
-        if (fwrite(bloc, 1, msg.pld_len, destination) != (size_t)msg.pld_len) {
+        if (msg.pld_len == 0)
+            break;
+
+        size_t taille = (size_t)msg.pld_len;
+        if (fwrite(bloc, 1, taille, destination) != taille) {
             perror("fwrite");
-            break;
+            goto nettoyage;
         }
     }
 
-    if (fclose(destination) == EOF) {
+    int resultat = fclose(destination);
+    destination = NULL; // le flux est fermé même si fclose signale une erreur
+    if (resultat == EOF) {
         perror("fclose");
-        fin_recue = 0;
+        goto nettoyage;
     }
 
-    if (fin_recue) {
-        if (rename(temporaire, chemin_final) == 0) {
-            printf("Fichier sauvegardé : %s\n", chemin_final);
-            struct message ack = {0};
-            ack.type = FILE_ACK;
-            ack.pld_len = 0;
-            snprintf(ack.infos, sizeof ack.infos, "%s", nom_accepte);
-
-            if (send_frame(fd, &ack, NULL) < 0)
-                fprintf(stderr, "Impossible d'envoyer l'ACK.\n");
-            return;
-        }
-        perror("rename");
+    if (link(temporaire, chemin_final) == -1) {
+        if (errno == EEXIST)
+            fprintf(stderr, "Sauvegarde refusée : %s existe déjà.\n",
+                    chemin_final);
+        else
+            perror("link");
+        goto nettoyage;
     }
 
-    unlink(temporaire);
+    printf("Fichier sauvegardé : %s\n", chemin_final);
+
+    struct message ack = {0};
+    ack.type = FILE_ACK;
+    snprintf(ack.infos, sizeof ack.infos, "%s", nom_accepte);
+    if (send_frame(fd, &ack, NULL) < 0)
+        fprintf(stderr, "Impossible d'envoyer l'ACK.\n");
+
+nettoyage:
+    if (destination != NULL)
+        fclose(destination);
+    if (temp_fd >= 0)
+        close(temp_fd);
+    if (temporaire_cree && unlink(temporaire) == -1)
+        perror("unlink du fichier temporaire");
+    close(fd);
 }
 
 static void run_poll_loop(int sockfd) {
@@ -367,7 +394,6 @@ static void run_poll_loop(int sockfd) {
             } else {
                 puts("Connexion directe reçue");
                 recevoir_fichier(direct_fd, nom_recu);
-                close(direct_fd);
             }
 
             annuler_demande(&fds[2], demande_de, nom_recu);
@@ -431,7 +457,6 @@ static void run_poll_loop(int sockfd) {
                         if (direct_fd >= 0) {
                             puts("Connexion directe établie");
                             envoyer_fichier(direct_fd, transfert.chemin);
-                            close(direct_fd);
                         }
 
                         memset(&transfert, 0, sizeof transfert);
