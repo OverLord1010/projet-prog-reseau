@@ -59,6 +59,58 @@ static int open_listen_socket(int sockfd, char *adresse, size_t taille)
     return sfd;
 }
 
+static int connect_direct(const char *adresse)
+{
+    char ip[INET_ADDRSTRLEN];
+    const char *separateur = strchr(adresse, ':');
+
+    if (separateur == NULL || separateur == adresse ||
+        (size_t)(separateur - adresse) >= sizeof ip) {
+        fprintf(stderr, "Adresse directe invalide.\n");
+        return -1;
+    }
+
+    size_t longueur_ip = (size_t)(separateur - adresse);
+    memcpy(ip, adresse, longueur_ip);
+    ip[longueur_ip] = '\0';
+
+    const char *texte_port = separateur + 1;
+    if (*texte_port == '\0' ||
+        texte_port[strspn(texte_port, "0123456789")] != '\0') {
+        fprintf(stderr, "Port direct invalide.\n");
+        return -1;
+    }
+
+    long port = strtol(texte_port, NULL, 10);
+    if (port < 1 || port > 65535) {
+        fprintf(stderr, "Port direct hors limites.\n");
+        return -1;
+    }
+
+    struct sockaddr_in bob = {0};
+    bob.sin_family = AF_INET;
+    bob.sin_port = htons((unsigned short)port);
+
+    if (inet_pton(AF_INET, ip, &bob.sin_addr) != 1) {
+        fprintf(stderr, "IPv4 directe invalide.\n");
+        return -1;
+    }
+
+    int direct_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (direct_fd == -1) {
+        perror("socket directe");
+        return -1;
+    }
+
+    if (connect(direct_fd, (struct sockaddr *)&bob, sizeof bob) == -1) {
+        perror("connect direct");
+        close(direct_fd);
+        return -1;
+    }
+
+    return direct_fd;
+}
+
 static void run_poll_loop(int sockfd) {
     struct pollfd fds[3] = {
         { .fd = STDIN_FILENO, .events = POLLIN },
@@ -87,7 +139,7 @@ static void run_poll_loop(int sockfd) {
     while (1)
     {
         // attendre une saisie ou des données du serveur
-        if (poll(fds, 2, -1) < 0) {
+        if (poll(fds, 3, -1) < 0) {
             perror("poll");
             break;
         }
@@ -155,9 +207,28 @@ static void run_poll_loop(int sockfd) {
 
                     if (msg.type == FILE_REJECT)
                         memset(&transfert, 0, sizeof transfert);
+
+                    if (msg.type == FILE_ACCEPT) {
+                        if (!transfert.en_attente ||
+                            strcmp(msg.nick_sender, transfert.pseudo) != 0)
+                            continue;
+
+                        int direct_fd = connect_direct(payload);
+                        if (direct_fd >= 0) {
+                            puts("Connexion directe établie");
+
+                            // Au prochain jalon, Alice enverra les morceaux ici.
+                            close(direct_fd);
+                        }
+
+                        memset(&transfert, 0, sizeof transfert);
+                        continue;
+                    }
+            
                 }
                 continue;
             }
+
             if (strcmp(payload, "Nickname already taken.\n") != 0)
                 isauth = "True";
 
