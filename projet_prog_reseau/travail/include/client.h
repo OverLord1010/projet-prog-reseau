@@ -1,19 +1,30 @@
-int open_listen_socket(uint16_t *port)
+static int open_listen_socket(int sockfd, char *adresse, size_t taille)
 {
-    int sfd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    if (getsockname(sockfd, (struct sockaddr *)&addr, &len) == -1)
+    {
+        perror("getsockname()");
+        return -1;
+    }
+
+    if (addr.ss_family == AF_INET)
+        ((struct sockaddr_in *)&addr)->sin_port = 0;
+    else if (addr.ss_family == AF_INET6)
+        ((struct sockaddr_in6 *)&addr)->sin6_port = 0;
+    else {
+        fprintf(stderr, "Famille d'adresse non prise en charge.\n");
+        return -1;
+    }
+
+    int sfd = socket(addr.ss_family, SOCK_STREAM, 0);
     if (sfd == -1)
     {
         perror("socket()");
         return -1;
     }
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(0); /* l'OS choisit le port */
-
-    if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1)
+    if (bind(sfd, (struct sockaddr *)&addr, len) == -1)
     {
         perror("bind()");
         close(sfd);
@@ -26,14 +37,25 @@ int open_listen_socket(uint16_t *port)
         return -1;
     }
 
-    socklen_t len = sizeof(addr);
+    len = sizeof(addr);
     if (getsockname(sfd, (struct sockaddr *)&addr, &len) == -1)
     {
         perror("getsockname()");
         close(sfd);
         return -1;
     }
-    *port = ntohs(addr.sin_port);
+    char ip[NI_MAXHOST];
+    char port[6];
+    int err = getnameinfo((struct sockaddr *)&addr, len, ip, sizeof(ip),
+                          port, sizeof(port), NI_NUMERICHOST | NI_NUMERICSERV);
+    if (err != 0) {
+        fprintf(stderr, "getnameinfo: %s\n", gai_strerror(err));
+        close(sfd);
+        return -1;
+    }
+
+    snprintf(adresse, taille, addr.ss_family == AF_INET6 ? "[%s]:%s" : "%s:%s",
+             ip, port);
     return sfd;
 }
 
@@ -126,23 +148,20 @@ static void run_poll_loop(int sockfd) {
             if (demande_de[0] != '\0' &&
                 (strcmp(payload, "Y\n") == 0 || strcmp(payload, "N\n") == 0)) {
                 struct message reponse = {0};
-                char adresse[32];
+                char adresse[NI_MAXHOST + 8];
                 const char *contenu = NULL;
 
                 reponse.type = FILE_REJECT;
                 snprintf(reponse.infos, sizeof reponse.infos, "%s", demande_de);
 
                 if (strcmp(payload, "Y\n") == 0) {
-                    uint16_t port;
-                    int fd = open_listen_socket(&port);
+                    int fd = open_listen_socket(sockfd, adresse, sizeof(adresse));
 
                     if (fd >= 0) {
                         if (file_listen_fd >= 0)
                             close(file_listen_fd);
                         file_listen_fd = fd;
 
-                        snprintf(adresse, sizeof adresse, "127.0.0.1:%u",
-                                (unsigned)port);
                         reponse.type = FILE_ACCEPT;
                         reponse.pld_len = (int)strlen(adresse);
                         contenu = adresse;
