@@ -4,6 +4,7 @@
 // ouvre une socket pour recevoir la connexion directe
 static int open_listen_socket(int sockfd, char *adresse, size_t taille)
 {
+    // Reprend l’adresse locale utilisée pour communiquer avec le serveur.
     struct sockaddr_in chat;
     socklen_t len = sizeof(chat);
     if (getsockname(sockfd, (struct sockaddr *)&chat, &len) == -1)
@@ -189,6 +190,7 @@ static void envoyer_fichier(int fd, const char *chemin)
     msg.type = FILE_SEND;
     snprintf(msg.infos, sizeof msg.infos, "%s", nom);
 
+    // Lit le fichier par blocs pour éviter de le charger entièrement en mémoire.
     size_t lus;
     while ((lus = fread(bloc, 1, sizeof bloc, fichier)) > 0) {
         msg.pld_len = (int)lus;
@@ -203,12 +205,14 @@ static void envoyer_fichier(int fd, const char *chemin)
         goto nettoyage;
     }
 
+    // Une trame FILE_SEND vide marque la fin du fichier.
     msg.pld_len = 0;
     if (send_frame(fd, &msg, NULL) < 0) {
         fprintf(stderr, "Impossible d'envoyer le marqueur de fin.\n");
         goto nettoyage;
     }
 
+    // Limite chaque lecture de la confirmation à dix secondes.
     struct timeval delai = { .tv_sec = 10, .tv_usec = 0 };
     if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &delai, sizeof delai) < 0) {
         perror("setsockopt");
@@ -260,6 +264,7 @@ static void recevoir_fichier(int fd, const char *nom_accepte)
     snprintf(chemin_final, sizeof chemin_final,
              ".resa1/inbox/%s", nom_accepte);
 
+    // Écrit dans un fichier temporaire tant que la réception est en cours.
     temp_fd = mkstemp(temporaire);
     if (temp_fd == -1) {
         perror("mkstemp");
@@ -283,6 +288,7 @@ static void recevoir_fichier(int fd, const char *nom_accepte)
             goto nettoyage;
         }
 
+        // Chaque trame doit correspondre au fichier accepté.
         if (msg.type != FILE_SEND || strcmp(msg.infos, nom_accepte) != 0) {
             fprintf(stderr, "Trame inattendue pendant le transfert.\n");
             goto nettoyage;
@@ -305,6 +311,7 @@ static void recevoir_fichier(int fd, const char *nom_accepte)
         goto nettoyage;
     }
 
+    // Donne son nom définitif au fichier sans écraser un fichier existant.
     if (link(temporaire, chemin_final) == -1) {
         if (errno == EEXIST)
             fprintf(stderr, "Sauvegarde refusée : %s existe déjà.\n",
@@ -316,6 +323,7 @@ static void recevoir_fichier(int fd, const char *nom_accepte)
 
     printf("Fichier sauvegardé : %s\n", chemin_final);
 
+    // Confirme la sauvegarde à l’expéditeur sur la connexion directe.
     struct message ack = {0};
     ack.type = FILE_ACK;
     snprintf(ack.infos, sizeof ack.infos, "%s", nom_accepte);
@@ -349,6 +357,7 @@ static void run_poll_loop(int sockfd) {
         char pseudo[NICK_LEN];
         int en_attente;
     } transfert = {0};
+    // Mémorise l’expéditeur et le nom du fichier proposé.
     char demande_de[NICK_LEN] = "";
     char nom_recu[MSG_LEN + 1] = "";
 
@@ -449,10 +458,7 @@ static void run_poll_loop(int sockfd) {
                         memset(&transfert, 0, sizeof transfert);
 
                     if (msg.type == FILE_ACCEPT) {
-                        if (!transfert.en_attente ||
-                            strcmp(msg.nick_sender, transfert.pseudo) != 0)
-                            continue;
-
+                        // L’accord contient l’adresse où joindre le destinataire.
                         int direct_fd = connect_direct(payload);
                         if (direct_fd >= 0) {
                             puts("Connexion directe établie");
@@ -497,6 +503,7 @@ static void run_poll_loop(int sockfd) {
                 snprintf(reponse.infos, sizeof reponse.infos, "%s", demande_de);
 
                 if (strcmp(payload, "Y\n") == 0) {
+                    // Ouvre l’écoute avant de communiquer l’adresse à l’expéditeur.
                     int fd = open_listen_socket(sockfd, adresse, sizeof(adresse));
 
                     if (fd >= 0) {
@@ -577,7 +584,6 @@ static void run_poll_loop(int sockfd) {
                         continue;
                     }
                     msg.type = NICKNAME_NEW;
-                    msg.pld_len = (int)strlen(payload);
                     snprintf(msg.infos, sizeof msg.infos, "%s", arg);
 
                     send_frame(sockfd, &msg, payload);
@@ -592,7 +598,6 @@ static void run_poll_loop(int sockfd) {
                         continue;
                     }
                     msg.type = NICKNAME_LIST;
-                    msg.pld_len = (int)strlen(payload);
 
                     send_frame(sockfd, &msg, payload);
 
@@ -607,7 +612,6 @@ static void run_poll_loop(int sockfd) {
                         continue;
                     }
                     msg.type = NICKNAME_INFOS;
-                    msg.pld_len = (int)strlen(payload);
                     snprintf(msg.infos, sizeof msg.infos, "%s", arg);
 
                     send_frame(sockfd, &msg, payload);
@@ -710,6 +714,7 @@ static void run_poll_loop(int sockfd) {
                         break;
                     }
 
+                    // Garde le chemin local pour ouvrir le fichier après acceptation.
                     strcpy(transfert.chemin, chemin);
                     strcpy(transfert.pseudo, pseudo);
                     transfert.en_attente = 1;
@@ -738,6 +743,7 @@ int handle_connect(const char *serv_addr, const char *serv_port) {
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
+	// Résout le nom ou l’adresse du serveur pour ouvrir la connexion de chat.
 	if (getaddrinfo(serv_addr, serv_port, &hints, &result) != 0) {
 		perror("getaddrinfo()");
 		exit(EXIT_FAILURE);

@@ -9,6 +9,7 @@ struct connected_client {
 
 int echo_server(int sockfd, struct connected_client *client,
                 struct connected_client *clients) {
+    // Traite une seule trame par appel pour revenir ensuite à la boucle poll.
     struct message msg = {0};
     char payload[MSG_LEN + 1];
 
@@ -16,6 +17,7 @@ int echo_server(int sockfd, struct connected_client *client,
         return -1;
     }
 
+    // Le serveur transmet la réponse à la personne qui a proposé le fichier.
     if (msg.type == FILE_REJECT || msg.type == FILE_ACCEPT) {
         struct connected_client *courant = clients;
 
@@ -58,6 +60,7 @@ int echo_server(int sockfd, struct connected_client *client,
     }
 
     else if (msg.type == NICKNAME_NEW) {
+        // Vérifie que le nouveau pseudo est libre avant de l'enregistrer.
         struct connected_client *courant = clients;
 
         while (courant != NULL) {
@@ -75,7 +78,7 @@ int echo_server(int sockfd, struct connected_client *client,
             courant = courant->next;
         }
         printf("%s updated their nickname : %s\n", client->nick, msg.infos);
-        // permet de tronquer le pseudo s'il est trop long
+        // Copie le pseudo dans le champ de taille fixe du client.
         snprintf(client->nick, sizeof client->nick, "%s", msg.infos);
 
         char buff[MSG_LEN];
@@ -113,6 +116,7 @@ int echo_server(int sockfd, struct connected_client *client,
             size_t longueur = 0;
             struct connected_client *courant = clients;
 
+            // Ajoute un pseudo par ligne dans la réponse à /who.
             while (courant != NULL) {
                 longueur += snprintf(buff + longueur, sizeof buff - longueur,
                                     "%s\n", courant->nick);
@@ -120,7 +124,7 @@ int echo_server(int sockfd, struct connected_client *client,
             }
 
             struct message reply = {0};
-            reply.type = ECHO_SEND;  // Même type que ta réponse « You are alone »
+            reply.type = ECHO_SEND;
             reply.pld_len = (int)longueur;
 
             send_frame(sockfd, &reply, buff);
@@ -153,7 +157,9 @@ int echo_server(int sockfd, struct connected_client *client,
             char ip[NI_MAXHOST];
             char port[NI_MAXSERV];
 
+            // Récupère l'adresse et le port sous forme numérique pour /whois.
             getnameinfo((struct sockaddr *)&courant->addr, courant->addr_len, ip, sizeof ip, port, sizeof port, NI_NUMERICHOST | NI_NUMERICSERV);
+            // Une IPv4 peut être représentée en IPv6 avec le préfixe ::ffff:.
             const char *ip_affichee = strncmp(ip, "::ffff:", 7) == 0 ? ip + 7 : ip;
             snprintf(buff, sizeof buff, "%s connected since %s with IP address %s and port number %s.\n", courant->nick, date, ip_affichee, port);
 
@@ -173,6 +179,7 @@ int echo_server(int sockfd, struct connected_client *client,
         return 0;
         
     }
+    // Pour /msg, le pseudo du destinataire est dans infos et le texte dans payload.
     else if (msg.type == UNICAST_SEND) {
         struct connected_client *courant = clients;
 
@@ -225,6 +232,7 @@ int echo_server(int sockfd, struct connected_client *client,
             return 0;
         }
 
+        // Diffuse le message à tous les autres clients.
         while (courant != NULL) {
             if (courant->fd != sockfd) {
                 send_frame(courant->fd, &reply, buff);
@@ -235,6 +243,7 @@ int echo_server(int sockfd, struct connected_client *client,
         return 0;
     }
 
+    // Transmet le nom du fichier au destinataire pour lui demander son accord.
     else if (msg.type == FILE_REQUEST) {
         struct connected_client *courant = clients;
 
@@ -266,6 +275,7 @@ int echo_server(int sockfd, struct connected_client *client,
         return 0;
     }
 
+    // Une ligne de texte ordinaire reçoit une réponse en écho.
     printf("Message from %d: %s\n", sockfd, payload);
 
     char buff[MSG_LEN];
@@ -289,10 +299,12 @@ int handle_bind(const char* serv_port) {
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
+	// Avec AI_PASSIVE, getaddrinfo prépare les adresses locales pour l'écoute.
 	if (getaddrinfo(NULL, serv_port, &hints, &result) != 0) {
 		perror("getaddrinfo()");
 		exit(EXIT_FAILURE);
 	}
+	// Essaie les adresses proposées jusqu'à ce que bind réussisse.
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
 		sfd = socket(rp->ai_family, rp->ai_socktype,
 		rp->ai_protocol);
@@ -315,7 +327,6 @@ int handle_bind(const char* serv_port) {
 static void run_poll_loop(int listen_fd) {
     struct connected_client *clients = NULL;
 
-    // Gestion de plusieurs client en simultané
     struct pollfd fds[MAX_CONN] = {0};
 
     // poll ignore les cases dont le descripteur vaut -1
@@ -325,7 +336,7 @@ static void run_poll_loop(int listen_fd) {
         fds[i].revents = 0;
     }
 
-    // La case 0 accueille la socket d’écoute, les autres pour les clients
+    // La case 0 surveille les nouvelles connexions, les autres suivent les clients.
     fds[0].fd = listen_fd;
     fds[0].events = POLLHUP | POLLIN;
     fds[0].revents = 0;
@@ -366,6 +377,7 @@ static void run_poll_loop(int listen_fd) {
                     client->addr_len = len;
                     strcpy(client->nick, "new_user");
                     client->connection = time(NULL);
+                    // Insère le nouveau client en tête de la liste.
                     client->next = clients;
                     clients = client;
 
@@ -377,6 +389,7 @@ static void run_poll_loop(int listen_fd) {
                 }
 
                 int fd = fds[i].fd;
+                // Garde l’adresse du pointeur à modifier si ce client quitte la liste.
                 struct connected_client **link = &clients;
 
                 while (*link != NULL && (*link)->fd != fd) {
@@ -393,6 +406,7 @@ static void run_poll_loop(int listen_fd) {
                     free(client);
                 }
 
+                // Rend la case disponible pour une prochaine connexion.
                 close(fd);
                 fds[i] = (struct pollfd){ .fd = -1 };
             }
