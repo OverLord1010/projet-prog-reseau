@@ -1,15 +1,215 @@
-#ifndef CLIENT_H
-#define CLIENT_H
+static void run_poll_loop(int sockfd) {
+    struct pollfd fds[2] = {
+        { .fd = STDIN_FILENO, .events = POLLIN },
+        { .fd = sockfd,      .events = POLLIN }
+    };
+    char payload[MSG_LEN];
+    char * isauth = "False";
 
-struct client;
-struct message;
+        while (1)
+    {
+        // attendre une saisie ou des données du serveur
+        if (poll(fds, 2, -1) < 0) {
+            perror("poll");
+            break;
+        }
 
-int client_connect(struct client *client, const char *host, const char *port);
-int client_run(struct client *client);
-int client_send_message(struct client *client, const struct message *message,
-                        const void *payload);
-int client_receive_message(struct client *client);
-int client_open_file_listener(struct client *client, const char *port);
-void client_close(struct client *client);
+        // socket pret, recevoir et afficher le message
+        if (fds[1].revents & POLLIN) {
+            struct message msg = {0};
+            msg.type = ECHO_SEND;
+            if (rcv_message(sockfd, &msg, sizeof msg) < 0) {
+                break;
+            }
 
-#endif
+            if (rcv_message(sockfd, payload, msg.pld_len) < 0) {
+                break;
+            }
+
+            if (strcmp(payload, "Nickname already taken.\n") != 0)
+                isauth = "True";
+
+            printf("%.*s\n", msg.pld_len, payload);
+        }
+
+        if (fds[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            break;
+        }
+
+        // clavier pret, lire et envoyer la ligne
+        if (fds[0].revents & POLLIN) {
+            if (fgets(payload, sizeof payload, stdin) == NULL) {
+                break;
+            }
+
+            char cmd[32];
+            char arg[NICK_LEN];
+            int n = sscanf(payload, "%31s %31[^\n]", cmd, arg);
+            if (n < 1) {
+                continue;
+            }
+
+            if (strcmp(isauth, "False") == 0) {
+                if (strcmp(cmd, "/quit") == 0)
+                {
+                    struct message msg = {0};
+                    msg.type = ECHO_SEND;
+                    msg.pld_len = (int)strlen(payload);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+                }
+
+
+                if (n == 2 && strcmp(cmd, "/nick") == 0)
+                {
+                    struct message msg = {0};
+                    msg.type = NICKNAME_NEW;
+                    msg.pld_len = (int)strlen(payload);
+                    snprintf(msg.infos, sizeof msg.infos, "%s", arg);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+                }
+                
+                else
+                {
+                    printf("Veuillez d'abord vous authentifier avec la commande /nick <pseudo>\n");
+                }
+            } else {
+                char cmd[32];
+                char arg[NICK_LEN];
+                int n = sscanf(payload, "%31s %31[^\n]", cmd, arg);
+                if (n < 1)
+                {
+                    continue;
+                }
+
+                struct message msg = {0};
+                msg.pld_len = (int)strlen(payload);
+
+                if (strcmp(cmd, "/nick") == 0)
+                {
+                    msg.type = NICKNAME_NEW;
+                    msg.pld_len = (int)strlen(payload);
+                    snprintf(msg.infos, sizeof msg.infos, "%s", arg);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+
+                    continue;
+                }
+
+                if (strcmp(cmd, "/who") == 0)
+                {
+                    if (n != 1){
+                        printf("Erreur dans la commande.\nVeuillez utiliser la commande par /who\n\n");
+                        continue;
+                    }
+                    msg.type = NICKNAME_LIST;
+                    msg.pld_len = (int)strlen(payload);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+
+                    continue;
+                }
+
+                if (strcmp(cmd, "/whois") == 0)
+                {
+                    if (n != 2)
+                    {
+                        printf("Erreur dans la commande.\nVeuillez utiliser la commande par /whois <pseudo>\n\n");
+                        continue;
+                    }
+                    msg.type = NICKNAME_INFOS;
+                    msg.pld_len = (int)strlen(payload);
+                    snprintf(msg.infos, sizeof msg.infos, "%s", arg);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, payload, msg.pld_len);
+
+                    continue;
+                }
+
+                if (strcmp(cmd, "/msgall") == 0)
+                {
+                    int debut_texte = 0;
+                    if (n != 2)
+                    {
+                        printf("Erreur dans la commande.\nVeuillez utiliser la commande par /msgall <message>\n\n");
+                        continue;
+                    }
+                    sscanf(payload, "%*s %n", &debut_texte);
+                    char *texte = payload + debut_texte;
+
+                    msg.type = BROADCAST_SEND;
+                    msg.pld_len = (int)strlen(texte);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, texte, msg.pld_len);
+
+                    continue;
+                }
+
+                if (strcmp(cmd, "/msg") == 0) {
+                    char pseudo[NICK_LEN];
+                    int debut_texte = 0;
+
+                    if (sscanf(payload, "%*s %127s %n", pseudo, &debut_texte) != 1 ||
+                        payload[debut_texte] == '\0') {
+                        printf("Utilisation : /msg <pseudo> <message>\n");
+                        continue;
+                    }
+
+                    char *texte = payload + debut_texte;
+
+                    msg.type = UNICAST_SEND;
+                    snprintf(msg.infos, sizeof msg.infos, "%s", pseudo);
+                    msg.pld_len = (int)strlen(texte);
+
+                    send_message(sockfd, &msg, sizeof msg);
+                    send_message(sockfd, texte, msg.pld_len);
+                    continue;
+                }
+
+                msg.type = ECHO_SEND;
+                send_message(sockfd, &msg, sizeof msg);
+                send_message(sockfd, payload, msg.pld_len);
+
+            }                    
+        }
+
+        if (fds[0].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            break;
+        }
+    }
+}
+
+int handle_connect(const char *serv_addr, const char *serv_port) {
+	struct addrinfo hints, *result, *rp;
+	int sfd;
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	if (getaddrinfo(serv_addr, serv_port, &hints, &result) != 0) {
+		perror("getaddrinfo()");
+		exit(EXIT_FAILURE);
+	}
+	for (rp = result; rp != NULL; rp = rp->ai_next) {
+		sfd = socket(rp->ai_family, rp->ai_socktype,rp->ai_protocol);
+		if (sfd == -1) {
+			continue;
+		}
+		if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1) {
+			break;
+		}
+		close(sfd);
+	}
+	if (rp == NULL) {
+		fprintf(stderr, "Could not connect\n");
+		exit(EXIT_FAILURE);
+	}
+	freeaddrinfo(result);
+	return sfd;
+}
