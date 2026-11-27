@@ -170,10 +170,10 @@ static void run_poll_loop(int sockfd) {
                 if (strcmp(cmd, "/send") == 0)
                 {
                     char pseudo[NICK_LEN];
-                    int debut_texte = 0;
+                    int debut_fichier = 0;
 
                     if (sscanf(payload, "%*s %127s %n", pseudo, &debut_fichier) != 1 ||
-                        payload[debut_texte] == '\0')
+                        payload[debut_fichier] == '\0')
                     {
                         printf("Utilisation : /send <pseudo> <fichier>\n");
                         continue;
