@@ -208,7 +208,33 @@ int echo_server(int sockfd, struct connected_client *client,
     }
 
     else if (msg.type == FILE_REQUEST) {
-        printf("ok fichier\n");
+        struct connected_client *courant = clients;
+
+        printf("%s is trying to send a file to %s.\n", client->nick, msg.infos);
+
+        while(courant != NULL) {
+            if (strcmp(msg.infos, courant->nick) == 0) {
+                break;
+            }
+            courant = courant->next;
+        }
+
+        if (courant != NULL) {
+            char buff[MSG_LEN];
+            snprintf(buff, sizeof buff, "%s is trying to send you this file : %s.\n Accept ? [Y/N]\n", client->nick, payload);
+            struct message reply = {0};
+            reply.type = FILE_REQUEST;
+            reply.pld_len = (int)strlen(buff);
+            send_frame(courant->fd, &reply, buff);
+        }
+        else {
+            char* buff = "This user is not connected.\n";
+            struct message reply = {0};
+            reply.type = ECHO_SEND;
+            reply.pld_len = (int)strlen(buff);
+            send_frame(sockfd, &reply, buff);
+        }
+
         return 0;
     }
 
