@@ -1,30 +1,34 @@
 static int open_listen_socket(int sockfd, char *adresse, size_t taille)
 {
-    struct sockaddr_storage addr;
-    socklen_t len = sizeof(addr);
-    if (getsockname(sockfd, (struct sockaddr *)&addr, &len) == -1)
+    struct sockaddr_in chat;
+    socklen_t len = sizeof(chat);
+    if (getsockname(sockfd, (struct sockaddr *)&chat, &len) == -1)
     {
         perror("getsockname()");
         return -1;
     }
 
-    if (addr.ss_family == AF_INET)
-        ((struct sockaddr_in *)&addr)->sin_port = 0;
-    else if (addr.ss_family == AF_INET6)
-        ((struct sockaddr_in6 *)&addr)->sin6_port = 0;
-    else {
-        fprintf(stderr, "Famille d'adresse non prise en charge.\n");
+    if (chat.sin_family != AF_INET) {
+        fprintf(stderr, "La connexion de chat doit utiliser IPv4 pour le transfert.\n");
         return -1;
     }
 
-    int sfd = socket(addr.ss_family, SOCK_STREAM, 0);
+    char ip[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &chat.sin_addr, ip, sizeof ip) == NULL) {
+        perror("inet_ntop");
+        return -1;
+    }
+
+    struct sockaddr_in ecoute = chat;
+    ecoute.sin_port = 0;
+    int sfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sfd == -1)
     {
         perror("socket()");
         return -1;
     }
 
-    if (bind(sfd, (struct sockaddr *)&addr, len) == -1)
+    if (bind(sfd, (struct sockaddr *)&ecoute, sizeof ecoute) == -1)
     {
         perror("bind()");
         close(sfd);
@@ -37,26 +41,23 @@ static int open_listen_socket(int sockfd, char *adresse, size_t taille)
         return -1;
     }
 
-    len = sizeof(addr);
-    if (getsockname(sfd, (struct sockaddr *)&addr, &len) == -1)
+    len = sizeof(ecoute);
+    if (getsockname(sfd, (struct sockaddr *)&ecoute, &len) == -1)
     {
         perror("getsockname()");
         close(sfd);
         return -1;
     }
-    char ip[NI_MAXHOST];
-    char port[6];
-    int err = getnameinfo((struct sockaddr *)&addr, len, ip, sizeof(ip),
-                          port, sizeof(port), NI_NUMERICHOST | NI_NUMERICSERV);
-    if (err != 0) {
-        fprintf(stderr, "getnameinfo: %s\n", gai_strerror(err));
-        close(sfd);
-        return -1;
-    }
-
-    snprintf(adresse, taille, addr.ss_family == AF_INET6 ? "[%s]:%s" : "%s:%s",
-             ip, port);
+    snprintf(adresse, taille, "%s:%u", ip, (unsigned)ntohs(ecoute.sin_port));
     return sfd;
+}
+
+static int64_t maintenant_ms(void)
+{
+    struct timespec instant;
+
+    clock_gettime(CLOCK_MONOTONIC, &instant);
+    return (int64_t)instant.tv_sec * 1000 + instant.tv_nsec / 1000000;
 }
 
 static int connect_direct(const char *adresse)
@@ -102,13 +103,60 @@ static int connect_direct(const char *adresse)
         return -1;
     }
 
+    int flags = fcntl(direct_fd, F_GETFL);
+    if (flags == -1 || fcntl(direct_fd, F_SETFL, flags | O_NONBLOCK) == -1)
+        goto echec;
+
     if (connect(direct_fd, (struct sockaddr *)&bob, sizeof bob) == -1) {
-        perror("connect direct");
-        close(direct_fd);
-        return -1;
+        if (errno != EINPROGRESS)
+            goto echec;
+
+        struct pollfd attente = { .fd = direct_fd, .events = POLLOUT };
+        int64_t expiration_ms = maintenant_ms() + 5000;
+        for (;;) {
+            int64_t restant = expiration_ms - maintenant_ms();
+            if (restant <= 0) {
+                errno = ETIMEDOUT;
+                goto echec;
+            }
+
+            int resultat = poll(&attente, 1, (int)restant);
+            if (resultat > 0)
+                break;
+            if (resultat < 0 && errno != EINTR)
+                goto echec;
+        }
+
+        int erreur = 0;
+        socklen_t len = sizeof erreur;
+        if (getsockopt(direct_fd, SOL_SOCKET, SO_ERROR, &erreur, &len) == -1)
+            goto echec;
+        if (erreur != 0) {
+            errno = erreur;
+            goto echec;
+        }
     }
 
+    if (fcntl(direct_fd, F_SETFL, flags) == -1)
+        goto echec;
+
     return direct_fd;
+
+echec:
+    perror("connect direct");
+    close(direct_fd);
+    return -1;
+}
+
+static void annuler_demande(struct pollfd *ecoute,
+                            char *demande_de, char *nom_recu)
+{
+    if (ecoute->fd >= 0)
+        close(ecoute->fd);
+
+    ecoute->fd = -1;
+    demande_de[0] = '\0';
+    nom_recu[0] = '\0';
 }
 
 static void run_poll_loop(int sockfd) {
@@ -117,11 +165,6 @@ static void run_poll_loop(int sockfd) {
         { .fd = sockfd,      .events = POLLIN },
         { .fd = -1 }
     };
-
-    if (poll(fds, 3, -1) < 0) {
-        perror("poll");
-        exit(1);
-    }
 
     char payload[MSG_LEN + 1];
     char * isauth = "False";
@@ -134,14 +177,37 @@ static void run_poll_loop(int sockfd) {
     char demande_de[NICK_LEN] = "";
     char nom_recu[MSG_LEN + 1] = "";
 
-    int file_listen_fd = -1;
+    int64_t expiration_ms = 0;
 
     while (1)
     {
         // attendre une saisie ou des données du serveur
-        if (poll(fds, 3, -1) < 0) {
+        int timeout = -1;
+
+        if (fds[2].fd >= 0) {
+            int64_t restant = expiration_ms - maintenant_ms();
+
+            if (restant <= 0) {
+                puts("Délai de connexion directe expiré.");
+                annuler_demande(&fds[2], demande_de, nom_recu);
+            } else {
+                timeout = (int)restant;
+            }
+        }
+
+        int resultat = poll(fds, 3, timeout);
+        if (resultat < 0) {
+            if (errno == EINTR)
+                continue;
             perror("poll");
             break;
+        }
+        if (resultat == 0)
+            continue;
+
+        if (fds[2].fd >= 0 && maintenant_ms() >= expiration_ms) {
+            puts("Délai de connexion directe expiré.");
+            annuler_demande(&fds[2], demande_de, nom_recu);
         }
 
         if (fds[2].fd >= 0 && (fds[2].revents & POLLIN)) {
@@ -150,10 +216,7 @@ static void run_poll_loop(int sockfd) {
             if (direct_fd < 0)
                 perror("accept");
 
-            close(fds[2].fd);
-            fds[2].fd = -1;
-            demande_de[0] = '\0';
-            nom_recu[0] = '\0';
+            annuler_demande(&fds[2], demande_de, nom_recu);
 
             if (direct_fd >= 0) {
                 puts("Connexion directe reçue");
@@ -247,6 +310,9 @@ static void run_poll_loop(int sockfd) {
 
             if (demande_de[0] != '\0' &&
                 (strcmp(payload, "Y\n") == 0 || strcmp(payload, "N\n") == 0)) {
+                if (fds[2].fd >= 0)
+                    continue;
+
                 struct message reponse = {0};
                 char adresse[NI_MAXHOST + 8];
                 const char *contenu = NULL;
@@ -258,8 +324,6 @@ static void run_poll_loop(int sockfd) {
                     int fd = open_listen_socket(sockfd, adresse, sizeof(adresse));
 
                     if (fd >= 0) {
-                        if (fds[2].fd >= 0)
-                            close(fds[2].fd);
                         fds[2].fd = fd;
                         fds[2].events = POLLIN;
 
@@ -274,9 +338,11 @@ static void run_poll_loop(int sockfd) {
                     break;
                 }
 
-                if(reponse.type == FILE_REJECT) {
-                    demande_de[0] = '\0';
-                    nom_recu[0] = '\0';
+                if (reponse.type == FILE_ACCEPT) {
+                    expiration_ms = maintenant_ms() + 10000;
+                }
+                else{
+                    annuler_demande(&fds[2], demande_de, nom_recu);
                 }
                 continue;
             }
@@ -479,9 +545,7 @@ static void run_poll_loop(int sockfd) {
         }
     }
 
-    if (fds[2].fd >= 0) {
-        close(fds[2].fd);
-    }
+    annuler_demande(&fds[2], demande_de, nom_recu);
 
 }
 
