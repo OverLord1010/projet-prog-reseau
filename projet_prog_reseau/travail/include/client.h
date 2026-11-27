@@ -169,6 +169,70 @@ static void annuler_demande(struct pollfd *ecoute,
     nom_recu[0] = '\0';
 }
 
+static void envoyer_fichier(int fd, const char *chemin)
+{
+    FILE *fichier = fopen(chemin, "rb");
+    if (fichier == NULL) {
+        perror(chemin);
+        return;
+    }
+
+    const char *slash = strrchr(chemin, '/');
+    const char *nom = slash ? slash + 1 : chemin;
+
+    unsigned char bloc[4096];
+    struct message msg = {0};
+    msg.type = FILE_SEND;
+    snprintf(msg.infos, sizeof msg.infos, "%s", nom);
+
+    size_t lus;
+    while ((lus = fread(bloc, 1, sizeof bloc, fichier)) > 0) {
+        msg.pld_len = (int)lus;
+        if (send_frame(fd, &msg, bloc) < 0) {
+            fprintf(stderr, "Impossible d'envoyer un bloc.\n");
+            fclose(fichier);
+            return;
+        }
+    }
+
+    if (ferror(fichier)) {
+        perror("fread");
+    } else {
+        msg.pld_len = 0;
+        if (send_frame(fd, &msg, NULL) < 0)
+            fprintf(stderr, "Impossible d'envoyer le marqueur de fin.\n");
+    }
+
+    fclose(fichier);
+}
+
+static void recevoir_fichier(int fd, const char *nom_accepte)
+{
+    unsigned char bloc[4096];
+    struct message msg;
+    size_t total = 0;
+
+    for (;;) {
+        if (recv_frame(fd, &msg, bloc, sizeof bloc) < 0) {
+            fprintf(stderr, "Réception interrompue avant la fin du fichier.\n");
+            return;
+        }
+
+        if (msg.type != FILE_SEND || strcmp(msg.infos, nom_accepte) != 0) {
+            fprintf(stderr, "Trame inattendue pendant le transfert.\n");
+            return;
+        }
+
+        if (msg.pld_len == 0) {
+            printf("Fin de %s (%zu octets reçus).\n", nom_accepte, total);
+            return;
+        }
+
+        total += (size_t)msg.pld_len;
+        printf("Bloc reçu : %d octets\n", msg.pld_len);
+    }
+}
+
 static void run_poll_loop(int sockfd) {
     // surveille le clavier, le serveur et la socket d’écoute si elle est ouverte
     struct pollfd fds[3] = {
@@ -226,15 +290,15 @@ static void run_poll_loop(int sockfd) {
             // accepte la connexion puis libère la socket d’écoute
             int direct_fd = accept(fds[2].fd, NULL, NULL);
 
-            if (direct_fd < 0)
+            if (direct_fd < 0) {
                 perror("accept");
-
-            annuler_demande(&fds[2], demande_de, nom_recu);
-
-            if (direct_fd >= 0) {
+            } else {
                 puts("Connexion directe reçue");
+                recevoir_fichier(direct_fd, nom_recu);
                 close(direct_fd);
             }
+
+            annuler_demande(&fds[2], demande_de, nom_recu);
         }
 
         // lit une trame envoyée par le serveur
@@ -294,8 +358,7 @@ static void run_poll_loop(int sockfd) {
                         int direct_fd = connect_direct(payload);
                         if (direct_fd >= 0) {
                             puts("Connexion directe établie");
-
-                            // l’envoi des morceaux du fichier sera ajouté ici
+                            envoyer_fichier(direct_fd, transfert.chemin);
                             close(direct_fd);
                         }
 
