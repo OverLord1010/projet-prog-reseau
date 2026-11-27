@@ -23,12 +23,29 @@ static void run_poll_loop(int sockfd) {
         // socket pret, recevoir et afficher le message
         if (fds[1].revents & POLLIN) {
             struct message msg = {0};
-            msg.type = ECHO_SEND;
             if (recv_frame(sockfd, &msg, payload, sizeof payload - 1) < 0)
                 break;
 
             payload[msg.pld_len] = '\0';
 
+            if (msg.type == FILE_REQUEST)
+            {
+                printf("%.*s\n", msg.pld_len, payload);
+                if (strcmp(payload, "N") == 0)
+                {
+                    // envoyer FILE_REJECT
+                    printf("file reject");
+                }
+                else if (strcmp(payload, "Y") == 0)
+                {
+                    // envoyer FILE_ACCEPT
+                    printf("file accept");
+                }
+            }
+
+            if (msg.type == FILE_REJECT) {
+                printf("Rejet de la demande de transfert");
+            }
             if (strcmp(payload, "Nickname already taken.\n") != 0)
                 isauth = "True";
 
