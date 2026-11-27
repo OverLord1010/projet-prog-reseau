@@ -301,3 +301,42 @@ int handle_connect(const char *serv_addr, const char *serv_port) {
 	freeaddrinfo(result);
 	return sfd;
 }
+
+int open_listen_socket(uint16_t *port)
+{
+    int sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sfd == -1)
+    {
+        perror("socket()");
+        return -1;
+    }
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(0); /* l'OS choisit le port */
+
+    if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1)
+    {
+        perror("bind()");
+        close(sfd);
+        return -1;
+    }
+    if (listen(sfd, 1) == -1)
+    {
+        perror("listen()");
+        close(sfd);
+        return -1;
+    }
+
+    socklen_t len = sizeof(addr);
+    if (getsockname(sfd, (struct sockaddr *)&addr, &len) == -1)
+    {
+        perror("getsockname()");
+        close(sfd);
+        return -1;
+    }
+    *port = ntohs(addr.sin_port);
+    return sfd;
+}
