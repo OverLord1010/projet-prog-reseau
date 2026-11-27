@@ -548,6 +548,7 @@ static void run_poll_loop(int sockfd) {
                     msg.pld_len = (int)strlen(payload);
 
                     send_frame(sockfd, &msg, payload);
+                    continue;
                 }
 
 
