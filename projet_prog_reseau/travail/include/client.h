@@ -3,7 +3,7 @@ static void run_poll_loop(int sockfd) {
         { .fd = STDIN_FILENO, .events = POLLIN },
         { .fd = sockfd,      .events = POLLIN }
     };
-    char payload[MSG_LEN];
+    char payload[MSG_LEN + 1];
     char * isauth = "False";
 
         while (1)
@@ -18,13 +18,10 @@ static void run_poll_loop(int sockfd) {
         if (fds[1].revents & POLLIN) {
             struct message msg = {0};
             msg.type = ECHO_SEND;
-            if (rcv_message(sockfd, &msg, sizeof msg) < 0) {
+            if (recv_frame(sockfd, &msg, payload, sizeof payload - 1) < 0)
                 break;
-            }
 
-            if (rcv_message(sockfd, payload, msg.pld_len) < 0) {
-                break;
-            }
+            payload[msg.pld_len] = '\0';
 
             if (strcmp(payload, "Nickname already taken.\n") != 0)
                 isauth = "True";
@@ -56,8 +53,7 @@ static void run_poll_loop(int sockfd) {
                     msg.type = ECHO_SEND;
                     msg.pld_len = (int)strlen(payload);
 
-                    send_message(sockfd, &msg, sizeof msg);
-                    send_message(sockfd, payload, msg.pld_len);
+                    send_frame(sockfd, &msg, payload);
                 }
 
 
@@ -68,8 +64,7 @@ static void run_poll_loop(int sockfd) {
                     msg.pld_len = (int)strlen(payload);
                     snprintf(msg.infos, sizeof msg.infos, "%s", arg);
 
-                    send_message(sockfd, &msg, sizeof msg);
-                    send_message(sockfd, payload, msg.pld_len);
+                    send_frame(sockfd, &msg, payload);
                 }
                 
                 else
@@ -90,12 +85,15 @@ static void run_poll_loop(int sockfd) {
 
                 if (strcmp(cmd, "/nick") == 0)
                 {
+                    if (n != 2) {
+                        printf("Utilisation : /nick <pseudo>\n");
+                        continue;
+                    }
                     msg.type = NICKNAME_NEW;
                     msg.pld_len = (int)strlen(payload);
                     snprintf(msg.infos, sizeof msg.infos, "%s", arg);
 
-                    send_message(sockfd, &msg, sizeof msg);
-                    send_message(sockfd, payload, msg.pld_len);
+                    send_frame(sockfd, &msg, payload);
 
                     continue;
                 }
@@ -109,8 +107,7 @@ static void run_poll_loop(int sockfd) {
                     msg.type = NICKNAME_LIST;
                     msg.pld_len = (int)strlen(payload);
 
-                    send_message(sockfd, &msg, sizeof msg);
-                    send_message(sockfd, payload, msg.pld_len);
+                    send_frame(sockfd, &msg, payload);
 
                     continue;
                 }
@@ -126,8 +123,7 @@ static void run_poll_loop(int sockfd) {
                     msg.pld_len = (int)strlen(payload);
                     snprintf(msg.infos, sizeof msg.infos, "%s", arg);
 
-                    send_message(sockfd, &msg, sizeof msg);
-                    send_message(sockfd, payload, msg.pld_len);
+                    send_frame(sockfd, &msg, payload);
 
                     continue;
                 }
@@ -146,8 +142,7 @@ static void run_poll_loop(int sockfd) {
                     msg.type = BROADCAST_SEND;
                     msg.pld_len = (int)strlen(texte);
 
-                    send_message(sockfd, &msg, sizeof msg);
-                    send_message(sockfd, texte, msg.pld_len);
+                    send_frame(sockfd, &msg, texte);
 
                     continue;
                 }
@@ -168,14 +163,12 @@ static void run_poll_loop(int sockfd) {
                     snprintf(msg.infos, sizeof msg.infos, "%s", pseudo);
                     msg.pld_len = (int)strlen(texte);
 
-                    send_message(sockfd, &msg, sizeof msg);
-                    send_message(sockfd, texte, msg.pld_len);
+                    send_frame(sockfd, &msg, texte);
                     continue;
                 }
 
                 msg.type = ECHO_SEND;
-                send_message(sockfd, &msg, sizeof msg);
-                send_message(sockfd, payload, msg.pld_len);
+                send_frame(sockfd, &msg, payload);
 
             }                    
         }

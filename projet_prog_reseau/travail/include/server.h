@@ -9,19 +9,14 @@ struct connected_client {
 
 int echo_server(int sockfd, struct connected_client *client,
                 struct connected_client *clients) {
-    struct message msg;
-    if (rcv_message(sockfd, &msg, sizeof msg) < 0) {
+    struct message msg = {0};
+    char payload[MSG_LEN + 1];
+
+    if (recv_frame(sockfd, &msg, payload, sizeof payload - 1) < 0) {
         return -1;
     }
 
-    char payload[MSG_LEN + 1];
-    if (msg.pld_len < 0 || msg.pld_len > MSG_LEN) {
-        return -1;
-    }
-    int bytes_read = rcv_message(sockfd, payload, msg.pld_len);
-    if (bytes_read < 0) {
-        return -1;
-    }
+    int bytes_read = msg.pld_len;
 
     // Terminer le texte pour pouvoir utiliser %s et strcmp().
     if (bytes_read > 0 && payload[bytes_read - 1] == '\n') {
@@ -45,8 +40,7 @@ int echo_server(int sockfd, struct connected_client *client,
                 struct message reply = {0};
                 reply.type = ECHO_SEND;
                 reply.pld_len = (int)strlen(buff);
-                send_message(sockfd, &reply, sizeof reply);
-                send_message(sockfd, buff, reply.pld_len);
+                send_frame(sockfd, &reply, buff);
 
                 return 0;
             }
@@ -62,8 +56,7 @@ int echo_server(int sockfd, struct connected_client *client,
         struct message reply = {0};
         reply.type = ECHO_SEND;
         reply.pld_len = (int)strlen(buff);
-        send_message(sockfd, &reply, sizeof reply);
-        send_message(sockfd, buff, reply.pld_len);
+        send_frame(sockfd, &reply, buff);
 
         printf("Message sent to %s\n\n", client->nick);
 
@@ -81,8 +74,7 @@ int echo_server(int sockfd, struct connected_client *client,
             struct message reply = {0};
             reply.type = ECHO_SEND;
             reply.pld_len = (int)strlen(buff);
-            send_message(sockfd, &reply, sizeof reply);
-            send_message(sockfd, buff, reply.pld_len);
+            send_frame(sockfd, &reply, buff);
 
             printf("Message sent to %s\n\n", client->nick);
 
@@ -103,8 +95,7 @@ int echo_server(int sockfd, struct connected_client *client,
             reply.type = ECHO_SEND;  // Même type que ta réponse « You are alone »
             reply.pld_len = (int)longueur;
 
-            send_message(sockfd, &reply, sizeof reply);
-            send_message(sockfd, buff, reply.pld_len);
+            send_frame(sockfd, &reply, buff);
 
             return 0;
         }
@@ -141,8 +132,7 @@ int echo_server(int sockfd, struct connected_client *client,
             struct message reply = {0};
             reply.type = ECHO_SEND;
             reply.pld_len = (int)strlen(buff);
-            send_message(sockfd, &reply, sizeof reply);
-            send_message(sockfd, buff, reply.pld_len);
+            send_frame(sockfd, &reply, buff);
 
         }
         else {
@@ -150,8 +140,7 @@ int echo_server(int sockfd, struct connected_client *client,
             struct message reply = {0};
             reply.type = ECHO_SEND;
             reply.pld_len = (int)strlen(buff);
-            send_message(sockfd, &reply, sizeof reply);
-            send_message(sockfd, buff, reply.pld_len);
+            send_frame(sockfd, &reply, buff);
         }
         return 0;
         
@@ -174,16 +163,14 @@ int echo_server(int sockfd, struct connected_client *client,
             struct message reply = {0};
             reply.type = ECHO_SEND;
             reply.pld_len = (int)strlen(buff);
-            send_message(courant->fd, &reply, sizeof reply);
-            send_message(courant->fd, buff, reply.pld_len);
+            send_frame(courant->fd, &reply, buff);
         }
         else {
             char* buff = "This user is not connected.\n";
             struct message reply = {0};
             reply.type = ECHO_SEND;
             reply.pld_len = (int)strlen(buff);
-            send_message(sockfd, &reply, sizeof reply);
-            send_message(sockfd, buff, reply.pld_len);
+            send_frame(sockfd, &reply, buff);
         }
 
         return 0;
@@ -205,16 +192,14 @@ int echo_server(int sockfd, struct connected_client *client,
             struct message reply = {0};
             reply.type = ECHO_SEND;
             reply.pld_len = (int)strlen(buff);
-            send_message(sockfd, &reply, sizeof reply);
-            send_message(sockfd, buff, reply.pld_len);
+            send_frame(sockfd, &reply, buff);
 
             return 0;
         }
 
         while (courant != NULL) {
             if (courant->fd != sockfd) {
-                send_message(courant->fd, &reply, sizeof reply);
-                send_message(courant->fd, buff, reply.pld_len);
+                send_frame(courant->fd, &reply, buff);
             }
             courant = courant->next;
         }
@@ -231,8 +216,7 @@ int echo_server(int sockfd, struct connected_client *client,
     struct message reply = {0};
     reply.type = ECHO_SEND;
     reply.pld_len = (int)strlen(buff);
-    send_message(sockfd, &reply, sizeof reply);
-    send_message(sockfd, buff, reply.pld_len);
+    send_frame(sockfd, &reply, buff);
 
     printf("Message sent to %d\n\n", sockfd);
 
