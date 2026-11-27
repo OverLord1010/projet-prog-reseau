@@ -60,10 +60,17 @@ static int open_listen_socket(int sockfd, char *adresse, size_t taille)
 }
 
 static void run_poll_loop(int sockfd) {
-    struct pollfd fds[2] = {
+    struct pollfd fds[3] = {
         { .fd = STDIN_FILENO, .events = POLLIN },
-        { .fd = sockfd,      .events = POLLIN }
+        { .fd = sockfd,      .events = POLLIN },
+        { .fd = -1 }
     };
+
+    if (poll(fds, 3, -1) < 0) {
+        perror("poll");
+        exit(1);
+    }
+
     char payload[MSG_LEN + 1];
     char * isauth = "False";
 
@@ -73,6 +80,7 @@ static void run_poll_loop(int sockfd) {
         int en_attente;
     } transfert = {0};
     char demande_de[NICK_LEN] = "";
+    char nom_recu[MSG_LEN + 1] = "";
 
     int file_listen_fd = -1;
 
@@ -84,6 +92,23 @@ static void run_poll_loop(int sockfd) {
             break;
         }
 
+        if (fds[2].fd >= 0 && (fds[2].revents & POLLIN)) {
+            int direct_fd = accept(fds[2].fd, NULL, NULL);
+
+            if (direct_fd < 0)
+                perror("accept");
+
+            close(fds[2].fd);
+            fds[2].fd = -1;
+            demande_de[0] = '\0';
+            nom_recu[0] = '\0';
+
+            if (direct_fd >= 0) {
+                puts("Connexion directe reçue");
+                close(direct_fd);
+            }
+        }
+
         // socket pret, recevoir et afficher le message
         if (fds[1].revents & POLLIN) {
             struct message msg = {0};
@@ -92,26 +117,28 @@ static void run_poll_loop(int sockfd) {
 
             payload[msg.pld_len] = '\0';
 
+
             if (msg.type == FILE_REQUEST) {
-                if (msg.type == FILE_REQUEST) {
-                    if (demande_de[0] != '\0') {
-                        struct message refus = {0};
-                        refus.type = FILE_REJECT;
-                        snprintf(refus.infos, sizeof refus.infos, "%s", msg.nick_sender);
+                if (demande_de[0] != '\0' || fds[2].fd >= 0) {
+                    struct message refus = {0};
+                    refus.type = FILE_REJECT;
+                    snprintf(refus.infos, sizeof refus.infos, "%s", msg.nick_sender);
 
-                        if (send_frame(sockfd, &refus, NULL) < 0) {
-                            fprintf(stderr, "Impossible d'envoyer le refus.\n");
-                            break;
-                        }
-
-                        continue;
+                    if (send_frame(sockfd, &refus, NULL) < 0) {
+                        fprintf(stderr, "Impossible d'envoyer le refus.\n");
+                        break;
                     }
 
-                    snprintf(demande_de, sizeof demande_de, "%s", msg.nick_sender);
-                    printf("%s", payload);
                     continue;
                 }
+
+                snprintf(demande_de, sizeof demande_de, "%s", msg.nick_sender);
+                snprintf(nom_recu, sizeof nom_recu, "%s", payload);
+                printf("%s is trying to send you this file : %s.\nAccept ? [Y/N]\n",
+                    demande_de, nom_recu);
+                continue;
             }
+
             if (msg.type == FILE_ACCEPT || msg.type == FILE_REJECT) {
                 if (transfert.en_attente &&
                     (strcmp(msg.nick_sender, transfert.pseudo) == 0 ||
@@ -120,6 +147,8 @@ static void run_poll_loop(int sockfd) {
                     if (msg.nick_sender[0] != '\0') {
                         printf("%s %s your file.\n", msg.nick_sender,
                                msg.type == FILE_ACCEPT ? "accepted" : "rejected");
+                        if (msg.type == FILE_ACCEPT)
+                            printf("Adresse directe : %s\n", payload);
                     } else {
                         printf("%s", payload);
                     }
@@ -158,9 +187,10 @@ static void run_poll_loop(int sockfd) {
                     int fd = open_listen_socket(sockfd, adresse, sizeof(adresse));
 
                     if (fd >= 0) {
-                        if (file_listen_fd >= 0)
-                            close(file_listen_fd);
-                        file_listen_fd = fd;
+                        if (fds[2].fd >= 0)
+                            close(fds[2].fd);
+                        fds[2].fd = fd;
+                        fds[2].events = POLLIN;
 
                         reponse.type = FILE_ACCEPT;
                         reponse.pld_len = (int)strlen(adresse);
@@ -173,7 +203,10 @@ static void run_poll_loop(int sockfd) {
                     break;
                 }
 
-                demande_de[0] = '\0';
+                if(reponse.type == FILE_REJECT) {
+                    demande_de[0] = '\0';
+                    nom_recu[0] = '\0';
+                }
                 continue;
             }
 
@@ -375,7 +408,10 @@ static void run_poll_loop(int sockfd) {
         }
     }
 
-    if (file_listen_fd >= 0) close(file_listen_fd);
+    if (fds[2].fd >= 0) {
+        close(fds[2].fd);
+    }
+
 }
 
 int handle_connect(const char *serv_addr, const char *serv_port) {

@@ -248,13 +248,11 @@ int echo_server(int sockfd, struct connected_client *client,
         }
 
         if (courant != NULL) {
-            char buff[MSG_LEN];
-            snprintf(buff, sizeof buff, "%s is trying to send you this file : %s.\nAccept ? [Y/N]\n", client->nick, payload);
             struct message reply = {0};
             reply.type = FILE_REQUEST;
             snprintf(reply.nick_sender, sizeof reply.nick_sender, "%s", client->nick);
-            reply.pld_len = (int)strlen(buff);
-            send_frame(courant->fd, &reply, buff);
+            reply.pld_len = bytes_read;
+            send_frame(courant->fd, &reply, payload);
         }
         else {
             char* buff = "This user is not connected.\n";
