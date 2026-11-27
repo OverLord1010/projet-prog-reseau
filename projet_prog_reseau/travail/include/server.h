@@ -221,7 +221,7 @@ int echo_server(int sockfd, struct connected_client *client,
 
         if (courant != NULL) {
             char buff[MSG_LEN];
-            snprintf(buff, sizeof buff, "%s is trying to send you this file : %s.\n Accept ? [Y/N]\n", client->nick, payload);
+            snprintf(buff, sizeof buff, "%s is trying to send you this file : %s.\nAccept ? [Y/N]\n", client->nick, payload);
             struct message reply = {0};
             reply.type = FILE_REQUEST;
             reply.pld_len = (int)strlen(buff);
@@ -230,7 +230,7 @@ int echo_server(int sockfd, struct connected_client *client,
         else {
             char* buff = "This user is not connected.\n";
             struct message reply = {0};
-            reply.type = ECHO_SEND;
+            reply.type = FILE_REJECT;
             reply.pld_len = (int)strlen(buff);
             send_frame(sockfd, &reply, buff);
         }
