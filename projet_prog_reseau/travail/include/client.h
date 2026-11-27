@@ -167,6 +167,28 @@ static void run_poll_loop(int sockfd) {
                     continue;
                 }
 
+                if (strcmp(cmd, "/send") == 0)
+                {
+                    char pseudo[NICK_LEN];
+                    int debut_texte = 0;
+
+                    if (sscanf(payload, "%*s %127s %n", pseudo, &debut_fichier) != 1 ||
+                        payload[debut_texte] == '\0')
+                    {
+                        printf("Utilisation : /send <pseudo> <fichier>\n");
+                        continue;
+                    }
+
+                    char *texte = payload + debut_fichier;
+
+                    msg.type = FILE_REQUEST;
+                    snprintf(msg.infos, sizeof msg.infos, "%s", pseudo);
+                    msg.pld_len = (int)strlen(texte);
+
+                    send_frame(sockfd, &msg, texte);
+                    continue;
+                }
+
                 msg.type = ECHO_SEND;
                 send_frame(sockfd, &msg, payload);
 
