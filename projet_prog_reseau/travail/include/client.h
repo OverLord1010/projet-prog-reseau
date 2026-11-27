@@ -1,3 +1,5 @@
+#include <sys/stat.h>
+
 // ouvre une socket pour recevoir la connexion directe
 static int open_listen_socket(int sockfd, char *adresse, size_t taille)
 {
@@ -208,29 +210,78 @@ static void envoyer_fichier(int fd, const char *chemin)
 
 static void recevoir_fichier(int fd, const char *nom_accepte)
 {
+    if (nom_accepte[0] == '\0' || strcmp(nom_accepte, ".") == 0 ||
+        strcmp(nom_accepte, "..") == 0 || strchr(nom_accepte, '/') != NULL ||
+        strlen(nom_accepte) >= INFOS_LEN) {
+        fprintf(stderr, "Nom de fichier invalide.\n");
+        return;
+    }
+
+    if (mkdir(".resa1", 0700) == -1 && errno != EEXIST) {
+        perror(".resa1");
+        return;
+    }
+    if (mkdir(".resa1/inbox", 0700) == -1 && errno != EEXIST) {
+        perror(".resa1/inbox");
+        return;
+    }
+
+    char chemin_final[sizeof ".resa1/inbox/" + INFOS_LEN];
+    snprintf(chemin_final, sizeof chemin_final, ".resa1/inbox/%s", nom_accepte);
+
+    char temporaire[] = ".resa1/inbox/.reception-XXXXXX";
+    int temp_fd = mkstemp(temporaire);
+    if (temp_fd == -1) {
+        perror("mkstemp");
+        return;
+    }
+
+    FILE *destination = fdopen(temp_fd, "wb");
+    if (destination == NULL) {
+        perror("fdopen");
+        close(temp_fd);
+        unlink(temporaire);
+        return;
+    }
+
     unsigned char bloc[4096];
     struct message msg;
-    size_t total = 0;
+    int fin_recue = 0;
 
     for (;;) {
         if (recv_frame(fd, &msg, bloc, sizeof bloc) < 0) {
-            fprintf(stderr, "Réception interrompue avant la fin du fichier.\n");
-            return;
+            fprintf(stderr, "Réception interrompue.\n");
+            break;
         }
-
         if (msg.type != FILE_SEND || strcmp(msg.infos, nom_accepte) != 0) {
             fprintf(stderr, "Trame inattendue pendant le transfert.\n");
-            return;
+            break;
         }
-
         if (msg.pld_len == 0) {
-            printf("Fin de %s (%zu octets reçus).\n", nom_accepte, total);
-            return;
+            fin_recue = 1;
+            break;
         }
 
-        total += (size_t)msg.pld_len;
-        printf("Bloc reçu : %d octets\n", msg.pld_len);
+        if (fwrite(bloc, 1, msg.pld_len, destination) != (size_t)msg.pld_len) {
+            perror("fwrite");
+            break;
+        }
     }
+
+    if (fclose(destination) == EOF) {
+        perror("fclose");
+        fin_recue = 0;
+    }
+
+    if (fin_recue) {
+        if (rename(temporaire, chemin_final) == 0) {
+            printf("Fichier sauvegardé : %s\n", chemin_final);
+            return;
+        }
+        perror("rename");
+    }
+
+    unlink(temporaire);
 }
 
 static void run_poll_loop(int sockfd) {
