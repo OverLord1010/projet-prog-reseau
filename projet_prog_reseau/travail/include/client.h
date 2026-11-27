@@ -199,13 +199,27 @@ static void envoyer_fichier(int fd, const char *chemin)
 
     if (ferror(fichier)) {
         perror("fread");
-    } else {
-        msg.pld_len = 0;
-        if (send_frame(fd, &msg, NULL) < 0)
-            fprintf(stderr, "Impossible d'envoyer le marqueur de fin.\n");
+        fclose(fichier);
+        return;
+    }
+    fclose(fichier);
+
+    msg.pld_len = 0;
+    if (send_frame(fd, &msg, NULL) < 0) {
+        fprintf(stderr, "Impossible d'envoyer le marqueur de fin.\n");
+        return;
     }
 
-    fclose(fichier);
+    struct message ack;
+    if (recv_frame(fd, &ack, NULL, 0) < 0 ||
+        ack.type != FILE_ACK ||
+        strcmp(ack.infos, msg.infos) != 0 ||
+        ack.pld_len != 0) {
+        fprintf(stderr, "ACK absent ou invalide.\n");
+        return;
+    }
+
+    puts("Bob a reçu le fichier");
 }
 
 static void recevoir_fichier(int fd, const char *nom_accepte)
@@ -276,6 +290,13 @@ static void recevoir_fichier(int fd, const char *nom_accepte)
     if (fin_recue) {
         if (rename(temporaire, chemin_final) == 0) {
             printf("Fichier sauvegardé : %s\n", chemin_final);
+            struct message ack = {0};
+            ack.type = FILE_ACK;
+            ack.pld_len = 0;
+            snprintf(ack.infos, sizeof ack.infos, "%s", nom_accepte);
+
+            if (send_frame(fd, &ack, NULL) < 0)
+                fprintf(stderr, "Impossible d'envoyer l'ACK.\n");
             return;
         }
         perror("rename");
