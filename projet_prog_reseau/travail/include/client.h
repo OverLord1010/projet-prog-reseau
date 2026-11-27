@@ -1,3 +1,64 @@
+static int open_listen_socket(int sockfd, char *adresse, size_t taille)
+{
+    struct sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    if (getsockname(sockfd, (struct sockaddr *)&addr, &len) == -1)
+    {
+        perror("getsockname()");
+        return -1;
+    }
+
+    if (addr.ss_family == AF_INET)
+        ((struct sockaddr_in *)&addr)->sin_port = 0;
+    else if (addr.ss_family == AF_INET6)
+        ((struct sockaddr_in6 *)&addr)->sin6_port = 0;
+    else {
+        fprintf(stderr, "Famille d'adresse non prise en charge.\n");
+        return -1;
+    }
+
+    int sfd = socket(addr.ss_family, SOCK_STREAM, 0);
+    if (sfd == -1)
+    {
+        perror("socket()");
+        return -1;
+    }
+
+    if (bind(sfd, (struct sockaddr *)&addr, len) == -1)
+    {
+        perror("bind()");
+        close(sfd);
+        return -1;
+    }
+    if (listen(sfd, 1) == -1)
+    {
+        perror("listen()");
+        close(sfd);
+        return -1;
+    }
+
+    len = sizeof(addr);
+    if (getsockname(sfd, (struct sockaddr *)&addr, &len) == -1)
+    {
+        perror("getsockname()");
+        close(sfd);
+        return -1;
+    }
+    char ip[NI_MAXHOST];
+    char port[6];
+    int err = getnameinfo((struct sockaddr *)&addr, len, ip, sizeof(ip),
+                          port, sizeof(port), NI_NUMERICHOST | NI_NUMERICSERV);
+    if (err != 0) {
+        fprintf(stderr, "getnameinfo: %s\n", gai_strerror(err));
+        close(sfd);
+        return -1;
+    }
+
+    snprintf(adresse, taille, addr.ss_family == AF_INET6 ? "[%s]:%s" : "%s:%s",
+             ip, port);
+    return sfd;
+}
+
 static void run_poll_loop(int sockfd) {
     struct pollfd fds[2] = {
         { .fd = STDIN_FILENO, .events = POLLIN },
@@ -13,7 +74,9 @@ static void run_poll_loop(int sockfd) {
     } transfert = {0};
     char demande_de[NICK_LEN] = "";
 
-        while (1)
+    int file_listen_fd = -1;
+
+    while (1)
     {
         // attendre une saisie ou des données du serveur
         if (poll(fds, 2, -1) < 0) {
@@ -49,13 +112,20 @@ static void run_poll_loop(int sockfd) {
                     continue;
                 }
             }
-            if (msg.type == FILE_REJECT) {
+            if (msg.type == FILE_ACCEPT || msg.type == FILE_REJECT) {
                 if (transfert.en_attente &&
                     (strcmp(msg.nick_sender, transfert.pseudo) == 0 ||
                      (msg.nick_sender[0] == '\0' &&
                       strcmp(msg.infos, transfert.pseudo) == 0))) {
-                    printf("%s", payload);
-                    memset(&transfert, 0, sizeof transfert);
+                    if (msg.nick_sender[0] != '\0') {
+                        printf("%s %s your file.\n", msg.nick_sender,
+                               msg.type == FILE_ACCEPT ? "accepted" : "rejected");
+                    } else {
+                        printf("%s", payload);
+                    }
+
+                    if (msg.type == FILE_REJECT)
+                        memset(&transfert, 0, sizeof transfert);
                 }
                 continue;
             }
@@ -75,14 +145,31 @@ static void run_poll_loop(int sockfd) {
                 break;
             }
 
-            if (demande_de[0] != '\0' && strcmp(payload, "N\n") == 0) {
-                struct message refus = {0};
-                refus.type = FILE_REJECT;
-                refus.pld_len = 0;
-                snprintf(refus.infos, sizeof refus.infos, "%s", demande_de);
+            if (demande_de[0] != '\0' &&
+                (strcmp(payload, "Y\n") == 0 || strcmp(payload, "N\n") == 0)) {
+                struct message reponse = {0};
+                char adresse[NI_MAXHOST + 8];
+                const char *contenu = NULL;
 
-                if (send_frame(sockfd, &refus, NULL) < 0) {
-                    fprintf(stderr, "Impossible d'envoyer le refus.\n");
+                reponse.type = FILE_REJECT;
+                snprintf(reponse.infos, sizeof reponse.infos, "%s", demande_de);
+
+                if (strcmp(payload, "Y\n") == 0) {
+                    int fd = open_listen_socket(sockfd, adresse, sizeof(adresse));
+
+                    if (fd >= 0) {
+                        if (file_listen_fd >= 0)
+                            close(file_listen_fd);
+                        file_listen_fd = fd;
+
+                        reponse.type = FILE_ACCEPT;
+                        reponse.pld_len = (int)strlen(adresse);
+                        contenu = adresse;
+                    }
+                }
+
+                if (send_frame(sockfd, &reponse, contenu) < 0) {
+                    fprintf(stderr, "Impossible d'envoyer la réponse.\n");
                     break;
                 }
 
@@ -287,6 +374,8 @@ static void run_poll_loop(int sockfd) {
             break;
         }
     }
+
+    if (file_listen_fd >= 0) close(file_listen_fd);
 }
 
 int handle_connect(const char *serv_addr, const char *serv_port) {
@@ -317,41 +406,3 @@ int handle_connect(const char *serv_addr, const char *serv_port) {
 	return sfd;
 }
 
-int open_listen_socket(uint16_t *port)
-{
-    int sfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sfd == -1)
-    {
-        perror("socket()");
-        return -1;
-    }
-
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(0); /* l'OS choisit le port */
-
-    if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1)
-    {
-        perror("bind()");
-        close(sfd);
-        return -1;
-    }
-    if (listen(sfd, 1) == -1)
-    {
-        perror("listen()");
-        close(sfd);
-        return -1;
-    }
-
-    socklen_t len = sizeof(addr);
-    if (getsockname(sfd, (struct sockaddr *)&addr, &len) == -1)
-    {
-        perror("getsockname()");
-        close(sfd);
-        return -1;
-    }
-    *port = ntohs(addr.sin_port);
-    return sfd;
-}
