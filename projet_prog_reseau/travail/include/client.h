@@ -30,9 +30,24 @@ static void run_poll_loop(int sockfd) {
             payload[msg.pld_len] = '\0';
 
             if (msg.type == FILE_REQUEST) {
-                snprintf(demande_de, sizeof demande_de, "%s", msg.nick_sender);
-                printf("%s", payload);
-                continue;
+                if (msg.type == FILE_REQUEST) {
+                    if (demande_de[0] != '\0') {
+                        struct message refus = {0};
+                        refus.type = FILE_REJECT;
+                        snprintf(refus.infos, sizeof refus.infos, "%s", msg.nick_sender);
+
+                        if (send_frame(sockfd, &refus, NULL) < 0) {
+                            fprintf(stderr, "Impossible d'envoyer le refus.\n");
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    snprintf(demande_de, sizeof demande_de, "%s", msg.nick_sender);
+                    printf("%s", payload);
+                    continue;
+                }
             }
             if (msg.type == FILE_REJECT) {
                 if (transfert.en_attente &&
