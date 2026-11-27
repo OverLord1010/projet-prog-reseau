@@ -22,6 +22,7 @@ int main(int argc, char** argv) {
     }
 
     int sockfd = handle_connect(argv[1], argv[2]);
+    // laisse les envois signaler une erreur si la connexion est fermée
     signal(SIGPIPE, SIG_IGN);
     run_poll_loop(sockfd);
     close(sockfd);

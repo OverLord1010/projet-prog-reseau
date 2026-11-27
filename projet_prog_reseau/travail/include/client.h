@@ -1,3 +1,4 @@
+// ouvre une socket pour recevoir la connexion directe
 static int open_listen_socket(int sockfd, char *adresse, size_t taille)
 {
     struct sockaddr_in chat;
@@ -20,6 +21,7 @@ static int open_listen_socket(int sockfd, char *adresse, size_t taille)
     }
 
     struct sockaddr_in ecoute = chat;
+    // laisse le système choisir un port libre sur la même adresse locale
     ecoute.sin_port = 0;
     int sfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sfd == -1)
@@ -48,10 +50,12 @@ static int open_listen_socket(int sockfd, char *adresse, size_t taille)
         close(sfd);
         return -1;
     }
+    // prépare l’adresse à communiquer à l’expéditeur
     snprintf(adresse, taille, "%s:%u", ip, (unsigned)ntohs(ecoute.sin_port));
     return sfd;
 }
 
+// mesure le temps écoulé sans dépendre de l’heure système
 static int64_t maintenant_ms(void)
 {
     struct timespec instant;
@@ -60,9 +64,11 @@ static int64_t maintenant_ms(void)
     return (int64_t)instant.tv_sec * 1000 + instant.tv_nsec / 1000000;
 }
 
+// se connecte au destinataire avec l’adresse reçue via le serveur
 static int connect_direct(const char *adresse)
 {
     char ip[INET_ADDRSTRLEN];
+    // sépare l’adresse ipv4 du port
     const char *separateur = strchr(adresse, ':');
 
     if (separateur == NULL || separateur == adresse ||
@@ -103,6 +109,7 @@ static int connect_direct(const char *adresse)
         return -1;
     }
 
+    // passe en mode non bloquant pour limiter l’attente à cinq secondes
     int flags = fcntl(direct_fd, F_GETFL);
     if (flags == -1 || fcntl(direct_fd, F_SETFL, flags | O_NONBLOCK) == -1)
         goto echec;
@@ -127,6 +134,7 @@ static int connect_direct(const char *adresse)
                 goto echec;
         }
 
+        // vérifie si la connexion a réussi après le réveil de poll
         int erreur = 0;
         socklen_t len = sizeof erreur;
         if (getsockopt(direct_fd, SOL_SOCKET, SO_ERROR, &erreur, &len) == -1)
@@ -137,6 +145,7 @@ static int connect_direct(const char *adresse)
         }
     }
 
+    // rétablit le mode initial de la socket
     if (fcntl(direct_fd, F_SETFL, flags) == -1)
         goto echec;
 
@@ -148,6 +157,7 @@ echec:
     return -1;
 }
 
+// ferme la socket d’écoute et efface la demande reçue
 static void annuler_demande(struct pollfd *ecoute,
                             char *demande_de, char *nom_recu)
 {
@@ -160,6 +170,7 @@ static void annuler_demande(struct pollfd *ecoute,
 }
 
 static void run_poll_loop(int sockfd) {
+    // surveille le clavier, le serveur et la socket d’écoute si elle est ouverte
     struct pollfd fds[3] = {
         { .fd = STDIN_FILENO, .events = POLLIN },
         { .fd = sockfd,      .events = POLLIN },
@@ -169,6 +180,7 @@ static void run_poll_loop(int sockfd) {
     char payload[MSG_LEN + 1];
     char * isauth = "False";
 
+    // garde le fichier et le destinataire en attendant sa réponse
     struct {
         char chemin[MSG_LEN + 1];
         char pseudo[NICK_LEN];
@@ -181,7 +193,7 @@ static void run_poll_loop(int sockfd) {
 
     while (1)
     {
-        // attendre une saisie ou des données du serveur
+        // attend sans limite sauf si une connexion directe est attendue
         int timeout = -1;
 
         if (fds[2].fd >= 0) {
@@ -211,6 +223,7 @@ static void run_poll_loop(int sockfd) {
         }
 
         if (fds[2].fd >= 0 && (fds[2].revents & POLLIN)) {
+            // accepte la connexion puis libère la socket d’écoute
             int direct_fd = accept(fds[2].fd, NULL, NULL);
 
             if (direct_fd < 0)
@@ -224,7 +237,7 @@ static void run_poll_loop(int sockfd) {
             }
         }
 
-        // socket pret, recevoir et afficher le message
+        // lit une trame envoyée par le serveur
         if (fds[1].revents & POLLIN) {
             struct message msg = {0};
             if (recv_frame(sockfd, &msg, payload, sizeof payload - 1) < 0)
@@ -233,6 +246,7 @@ static void run_poll_loop(int sockfd) {
             payload[msg.pld_len] = '\0';
 
 
+            // refuse une nouvelle demande si une autre est déjà en cours
             if (msg.type == FILE_REQUEST) {
                 if (demande_de[0] != '\0' || fds[2].fd >= 0) {
                     struct message refus = {0};
@@ -254,6 +268,7 @@ static void run_poll_loop(int sockfd) {
                 continue;
             }
 
+            // associe la réponse à la demande envoyée
             if (msg.type == FILE_ACCEPT || msg.type == FILE_REJECT) {
                 if (transfert.en_attente &&
                     (strcmp(msg.nick_sender, transfert.pseudo) == 0 ||
@@ -280,7 +295,7 @@ static void run_poll_loop(int sockfd) {
                         if (direct_fd >= 0) {
                             puts("Connexion directe établie");
 
-                            // Au prochain jalon, Alice enverra les morceaux ici.
+                            // l’envoi des morceaux du fichier sera ajouté ici
                             close(direct_fd);
                         }
 
@@ -302,12 +317,13 @@ static void run_poll_loop(int sockfd) {
             break;
         }
 
-        // clavier pret, lire et envoyer la ligne
+        // lit une ligne saisie au clavier
         if (fds[0].revents & POLLIN) {
             if (fgets(payload, sizeof payload, stdin) == NULL) {
                 break;
             }
 
+            // traite y ou n comme une réponse à la demande reçue
             if (demande_de[0] != '\0' &&
                 (strcmp(payload, "Y\n") == 0 || strcmp(payload, "N\n") == 0)) {
                 if (fds[2].fd >= 0)
@@ -339,6 +355,7 @@ static void run_poll_loop(int sockfd) {
                 }
 
                 if (reponse.type == FILE_ACCEPT) {
+                    // donne dix secondes à l’expéditeur pour se connecter
                     expiration_ms = maintenant_ms() + 10000;
                 }
                 else{
@@ -347,6 +364,7 @@ static void run_poll_loop(int sockfd) {
                 continue;
             }
 
+            // récupère le premier mot et le début de l’argument
             char cmd[32];
             char arg[NICK_LEN];
             int n = sscanf(payload, "%31s %31[^\n]", cmd, arg);
@@ -354,6 +372,7 @@ static void run_poll_loop(int sockfd) {
                 continue;
             }
 
+            // gère le choix du pseudo avant les commandes de chat
             if (strcmp(isauth, "False") == 0) {
                 if (strcmp(cmd, "/quit") == 0)
                 {
@@ -444,6 +463,7 @@ static void run_poll_loop(int sockfd) {
                         printf("Erreur dans la commande.\nVeuillez utiliser la commande par /msgall <message>\n\n");
                         continue;
                     }
+                    // repère le début du texte à diffuser
                     sscanf(payload, "%*s %n", &debut_texte);
                     char *texte = payload + debut_texte;
 
@@ -465,6 +485,7 @@ static void run_poll_loop(int sockfd) {
                         continue;
                     }
 
+                    // reprend le message complet après le pseudo
                     char *texte = payload + debut_texte;
 
                     msg.type = UNICAST_SEND;
@@ -495,14 +516,14 @@ static void run_poll_loop(int sockfd) {
                     char *chemin = payload + debut_fichier;
                     chemin[strcspn(chemin, "\r\n")] = '\0';
 
-                    // Retirer les guillemets autour du chemin, s'il y en a.
+                    // retire les guillemets autour du chemin s’il y en a
                     size_t longueur = strlen(chemin);
                     if (longueur >= 2 && chemin[0] == '"' && chemin[longueur - 1] == '"') {
                         chemin[longueur - 1] = '\0';
                         chemin++;
                     }
 
-                    // Prendre ce qui suit le dernier '/'. Un chemin relatif peut ne pas en avoir.
+                    // extrait le nom du fichier à envoyer au destinataire
                     const char *dernier_slash = strrchr(chemin, '/');
                     const char *nom = dernier_slash ? dernier_slash + 1 : chemin;
                     size_t longueur_nom = strlen(nom);
@@ -512,6 +533,7 @@ static void run_poll_loop(int sockfd) {
                         continue;
                     }
 
+                    // vérifie que le fichier peut être ouvert en lecture
                     FILE *fichier = fopen(chemin, "rb");
                     if (fichier == NULL) {
                         perror(chemin);
@@ -534,6 +556,7 @@ static void run_poll_loop(int sockfd) {
                     continue;
                 }
 
+                // envoie les autres lignes au serveur en mode écho
                 msg.type = ECHO_SEND;
                 send_frame(sockfd, &msg, payload);
 
@@ -559,6 +582,7 @@ int handle_connect(const char *serv_addr, const char *serv_port) {
 		perror("getaddrinfo()");
 		exit(EXIT_FAILURE);
 	}
+	// essaie les adresses du serveur jusqu’à la première connexion réussie
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
 		sfd = socket(rp->ai_family, rp->ai_socktype,rp->ai_protocol);
 		if (sfd == -1) {
