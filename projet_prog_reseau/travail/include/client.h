@@ -11,6 +11,7 @@ static void run_poll_loop(int sockfd) {
         char pseudo[NICK_LEN];
         int en_attente;
     } transfert = {0};
+    char demande_de[NICK_LEN] = "";
 
         while (1)
     {
@@ -28,23 +29,20 @@ static void run_poll_loop(int sockfd) {
 
             payload[msg.pld_len] = '\0';
 
-            if (msg.type == FILE_REQUEST)
-            {
-                printf("%.*s\n", msg.pld_len, payload);
-                if (strcmp(payload, "N") == 0)
-                {
-                    // envoyer FILE_REJECT
-                    printf("file reject");
-                }
-                else if (strcmp(payload, "Y") == 0)
-                {
-                    // envoyer FILE_ACCEPT
-                    printf("file accept");
-                }
+            if (msg.type == FILE_REQUEST) {
+                snprintf(demande_de, sizeof demande_de, "%s", msg.nick_sender);
+                printf("%s", payload);
+                continue;
             }
-
             if (msg.type == FILE_REJECT) {
-                printf("Rejet de la demande de transfert");
+                if (transfert.en_attente &&
+                    (strcmp(msg.nick_sender, transfert.pseudo) == 0 ||
+                     (msg.nick_sender[0] == '\0' &&
+                      strcmp(msg.infos, transfert.pseudo) == 0))) {
+                    printf("%s", payload);
+                    memset(&transfert, 0, sizeof transfert);
+                }
+                continue;
             }
             if (strcmp(payload, "Nickname already taken.\n") != 0)
                 isauth = "True";
@@ -60,6 +58,21 @@ static void run_poll_loop(int sockfd) {
         if (fds[0].revents & POLLIN) {
             if (fgets(payload, sizeof payload, stdin) == NULL) {
                 break;
+            }
+
+            if (demande_de[0] != '\0' && strcmp(payload, "N\n") == 0) {
+                struct message refus = {0};
+                refus.type = FILE_REJECT;
+                refus.pld_len = 0;
+                snprintf(refus.infos, sizeof refus.infos, "%s", demande_de);
+
+                if (send_frame(sockfd, &refus, NULL) < 0) {
+                    fprintf(stderr, "Impossible d'envoyer le refus.\n");
+                    break;
+                }
+
+                demande_de[0] = '\0';
+                continue;
             }
 
             char cmd[32];

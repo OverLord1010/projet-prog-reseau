@@ -224,6 +224,7 @@ int echo_server(int sockfd, struct connected_client *client,
             snprintf(buff, sizeof buff, "%s is trying to send you this file : %s.\nAccept ? [Y/N]\n", client->nick, payload);
             struct message reply = {0};
             reply.type = FILE_REQUEST;
+            snprintf(reply.nick_sender, sizeof reply.nick_sender, "%s", client->nick);
             reply.pld_len = (int)strlen(buff);
             send_frame(courant->fd, &reply, buff);
         }
@@ -231,6 +232,7 @@ int echo_server(int sockfd, struct connected_client *client,
             char* buff = "This user is not connected.\n";
             struct message reply = {0};
             reply.type = FILE_REJECT;
+            snprintf(reply.infos, sizeof reply.infos, "%s", msg.infos);
             reply.pld_len = (int)strlen(buff);
             send_frame(sockfd, &reply, buff);
         }
@@ -255,6 +257,8 @@ int echo_server(int sockfd, struct connected_client *client,
             snprintf(buff, sizeof buff, "%s rejected your file.\n", client->nick);
             struct message reply = {0};
             reply.type = FILE_REJECT;
+            snprintf(reply.nick_sender, sizeof reply.nick_sender, "%s", client->nick);
+            snprintf(reply.infos, sizeof reply.infos, "%s", msg.infos);
             reply.pld_len = (int)strlen(buff);
             send_frame(courant->fd, &reply, buff);
         }
