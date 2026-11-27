@@ -6,6 +6,12 @@ static void run_poll_loop(int sockfd) {
     char payload[MSG_LEN + 1];
     char * isauth = "False";
 
+    struct {
+        char chemin[MSG_LEN + 1];
+        char pseudo[NICK_LEN];
+        int en_attente;
+    } transfert = {0};
+
         while (1)
     {
         // attendre une saisie ou des données du serveur
@@ -179,13 +185,50 @@ static void run_poll_loop(int sockfd) {
                         continue;
                     }
 
-                    char *texte = payload + debut_fichier;
+                    if (transfert.en_attente) {
+                        printf("Une demande de transfert est déjà en attente.\n");
+                        continue;
+                    }
+
+                    char *chemin = payload + debut_fichier;
+                    chemin[strcspn(chemin, "\r\n")] = '\0';
+
+                    // Retirer les guillemets autour du chemin, s'il y en a.
+                    size_t longueur = strlen(chemin);
+                    if (longueur >= 2 && chemin[0] == '"' && chemin[longueur - 1] == '"') {
+                        chemin[longueur - 1] = '\0';
+                        chemin++;
+                    }
+
+                    // Prendre ce qui suit le dernier '/'. Un chemin relatif peut ne pas en avoir.
+                    const char *dernier_slash = strrchr(chemin, '/');
+                    const char *nom = dernier_slash ? dernier_slash + 1 : chemin;
+                    size_t longueur_nom = strlen(nom);
+
+                    if (longueur_nom == 0 || longueur_nom >= sizeof msg.infos) {
+                        printf("Nom de fichier vide ou trop long.\n");
+                        continue;
+                    }
+
+                    FILE *fichier = fopen(chemin, "rb");
+                    if (fichier == NULL) {
+                        perror(chemin);
+                        continue;
+                    }
+                    fclose(fichier);
 
                     msg.type = FILE_REQUEST;
                     snprintf(msg.infos, sizeof msg.infos, "%s", pseudo);
-                    msg.pld_len = (int)strlen(texte);
+                    msg.pld_len = (int)longueur_nom;
 
-                    send_frame(sockfd, &msg, texte);
+                    if (send_frame(sockfd, &msg, nom) < 0) {
+                        fprintf(stderr, "Impossible d'envoyer la demande de transfert.\n");
+                        break;
+                    }
+
+                    strcpy(transfert.chemin, chemin);
+                    strcpy(transfert.pseudo, pseudo);
+                    transfert.en_attente = 1;
                     continue;
                 }
 

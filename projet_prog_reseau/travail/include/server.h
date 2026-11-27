@@ -207,6 +207,11 @@ int echo_server(int sockfd, struct connected_client *client,
         return 0;
     }
 
+    else if (msg.type == FILE_REQUEST) {
+        printf("ok fichier\n");
+        return 0;
+    }
+
     printf("Message from %d: %s\n", sockfd, payload);
 
     char buff[MSG_LEN];
